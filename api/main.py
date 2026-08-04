@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from typing import List, Dict, Any
 from database.repository import repository
 from api import crud
@@ -16,6 +17,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+class StatusUpdate(BaseModel):
+    status: str
 
 @app.get("/")
 def health_check() -> dict:
@@ -49,5 +53,15 @@ def get_patients() -> List[Dict[str, Any]]:
 def get_appointments() -> List[Dict[str, Any]]:
     try:
         return crud.get_all_appointments()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.put("/api/appointments/{appointment_id}/status")
+def update_status(appointment_id: int, payload: StatusUpdate) -> dict:
+    try:
+        success = crud.update_appointment_status(appointment_id, payload.status)
+        if not success:
+            raise HTTPException(status_code=404, detail="Appointment not found")
+        return {"success": True, "message": "Status updated successfully"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

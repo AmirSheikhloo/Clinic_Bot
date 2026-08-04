@@ -50,3 +50,13 @@ def get_all_appointments() -> List[Dict[str, Any]]:
         """
         cursor.execute(query)
         return [dict(row) for row in cursor.fetchall()]
+
+def update_appointment_status(appointment_id: int, status: str) -> bool:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE appointments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (status, appointment_id)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
