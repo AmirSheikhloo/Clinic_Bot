@@ -16,7 +16,7 @@ def register_keyboard():
     return keyboard
 
 # ==========================================
-# کیبوردهای لغو و بازگشت (شیشه‌ای)
+# Inline Keyboards
 # ==========================================
 
 def cancel_only_inline_keyboard(text="❌ لغو ثبت‌نام"):
@@ -53,7 +53,7 @@ def other_back_inline_keyboard(text=""):
     return keyboard
 
 # ==========================================
-# کیبوردهای اصلی سیستم
+# Main System Keyboards
 # ==========================================
 
 def patient_keyboard():
@@ -204,7 +204,6 @@ def appointment_list_keyboard(appointments, prefix):
         return keyboard
 
     for index, appointment in enumerate(appointments, start=1):
-        # با استفاده از short_name=True نام دکتر را در دکمه‌ها حذف می‌کنیم تا متن نصفه نشود
         service_name = get_service_display_name(appointment.get("service_name", ""), appointment.get("gender"), short_name=True)
         appointment_date = appointment.get("appointment_date")
         start_time = appointment.get("start_time", "")

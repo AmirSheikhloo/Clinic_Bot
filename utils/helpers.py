@@ -17,17 +17,14 @@ def get_service_display_name(service_name: str, gender: str = None, short_name: 
     
     display = service_name
     
-    # حذف پسوند دکتر گرایلی از همه‌ی خدمات به جز ویزیت برای جلوگیری از تکرار
     if "دکتر گرایلی" in display and "ویزیت" not in display:
         display = display.replace(" دکتر گرایلی", "").replace("دکتر گرایلی", "").strip()
     
-    # اضافه کردن انحصاری نام دکتر در صورت نیاز (فاکتور و متن پیام‌ها)
     if not short_name:
         append_doctor = ["طب سوزنی", "امبدینگ(لاغری)", "اسکن کل بدن", "غمز و رگ گیری"]
         if display in append_doctor:
             display += " دکتر گرایلی"
     
-    # برای افزودن جنسیت، نسخه بدون دکتر را مبنا قرار می‌دهیم تا شرط‌ها درست کار کنند
     base_for_gender = display.replace(" دکتر گرایلی", "")
     if gender == "male" and base_for_gender in ["بادکش", "حجامت عام", "زالودرمانی"]:
         display += " آقایان"
