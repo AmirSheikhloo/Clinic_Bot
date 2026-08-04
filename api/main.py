@@ -2,6 +2,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Dict, Any
 from database.repository import repository
+from api import crud
 
 app = FastAPI(
     title="Clinic Dashboard API",
@@ -27,5 +28,26 @@ def health_check() -> dict:
 def get_all_services() -> List[Dict[str, Any]]:
     try:
         return repository.get_services()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/dashboard/stats")
+def get_stats() -> dict:
+    try:
+        return crud.get_dashboard_stats()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/patients")
+def get_patients() -> List[Dict[str, Any]]:
+    try:
+        return crud.get_all_patients()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/appointments")
+def get_appointments() -> List[Dict[str, Any]]:
+    try:
+        return crud.get_all_appointments()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
