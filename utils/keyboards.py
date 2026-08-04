@@ -52,6 +52,24 @@ def other_back_inline_keyboard(text=""):
     keyboard.add(InlineKeyboardButton("↩️ بازگشت به انتخاب فرد", callback_data="booking_back:target"), row=2)
     return keyboard
 
+def other_patient_confirm_keyboard():
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("📅 انتخاب خدمت و دریافت نوبت", callback_data="booking_other:proceed"), row=1)
+    keyboard.add(InlineKeyboardButton("✏️ ویرایش اطلاعات", callback_data="booking_other:edit"), row=2)
+    keyboard.add(InlineKeyboardButton("🔙 بازگشت به مرحله قبل", callback_data="other_back"), row=3)
+    return keyboard
+
+def edit_other_cancel_inline_keyboard():
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("❌ لغو ویرایش", callback_data="booking_other:cancel_edit"), row=1)
+    return keyboard
+
+def edit_other_back_inline_keyboard():
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("🔙 بازگشت به مرحله قبل", callback_data="edit_other_back"), row=1)
+    keyboard.add(InlineKeyboardButton("❌ لغو ویرایش", callback_data="booking_other:cancel_edit"), row=2)
+    return keyboard
+
 # ==========================================
 # Main System Keyboards
 # ==========================================

@@ -9,7 +9,9 @@ from handlers.booking import (
     handle_booking_checkout_callback,
     handle_booking_back_callback,
     handle_booking_start_callback,
-    OTHER_PATIENT_NAME, OTHER_PATIENT_NATIONAL_ID, OTHER_PATIENT_PHONE, OTHER_PATIENT_GENDER, OTHER_PATIENT_INSURANCE
+    handle_booking_other_callback,
+    OTHER_PATIENT_NATIONAL_ID, OTHER_PATIENT_NAME, OTHER_PATIENT_PHONE, OTHER_PATIENT_GENDER, OTHER_PATIENT_INSURANCE,
+    EDIT_OTHER_NAME, EDIT_OTHER_PHONE, EDIT_OTHER_GENDER, EDIT_OTHER_INSURANCE
 )
 
 from handlers.appointments import (
@@ -24,7 +26,8 @@ from utils.state_manager import state_manager
 from utils.helpers import send_welcome_message, get_msg_id, activate_text_keyboard
 from utils.keyboards import (
     cancel_only_inline_keyboard, cancel_back_inline_keyboard, edit_cancel_inline_keyboard, edit_back_inline_keyboard,
-    other_cancel_inline_keyboard, other_back_inline_keyboard, gender_keyboard, insurance_keyboard, main_keyboard
+    other_cancel_inline_keyboard, other_back_inline_keyboard, gender_keyboard, insurance_keyboard, main_keyboard,
+    edit_other_cancel_inline_keyboard, edit_other_back_inline_keyboard
 )
 
 async def send_callback_message(query: CallbackQuery, text: str, components=None):
@@ -48,6 +51,10 @@ async def handle_callback(query: CallbackQuery) -> None:
 
     if data == "booking_start_inline":
         await handle_booking_start_callback(query)
+        return
+
+    if data.startswith("booking_other:"):
+        await handle_booking_other_callback(query)
         return
 
     if data == "register_cancel":
@@ -120,18 +127,38 @@ async def handle_callback(query: CallbackQuery) -> None:
             await send_callback_message(query, "⚧ لطفاً جنسیت خود را انتخاب کنید:", components=edit_back_inline_keyboard("❌ لغو ویرایش"))
             return
 
+    if data == "edit_other_back":
+        state = state_manager.get_state(user_id)
+        bot = query.message.get_bot()
+        chat_id = query.message.chat_id
+        
+        if state == EDIT_OTHER_PHONE:
+            state_manager.set_state(user_id, EDIT_OTHER_NAME)
+            await send_callback_message(query, "✏️ **ویرایش اطلاعات**\n\n👤 لطفاً نام و نام خانوادگی جدید را وارد کنید:\n\n(مثال: علی رضایی)", components=edit_other_cancel_inline_keyboard())
+            return
+        elif state == EDIT_OTHER_GENDER:
+            state_manager.set_state(user_id, EDIT_OTHER_PHONE)
+            await activate_text_keyboard(bot, chat_id, is_registered=True)
+            await send_callback_message(query, "📱 لطفاً شماره موبایل جدید را وارد کنید:\n\n(مثال: 09123456789)", components=edit_other_back_inline_keyboard())
+            return
+        elif state == EDIT_OTHER_INSURANCE:
+            state_manager.set_state(user_id, EDIT_OTHER_GENDER)
+            await bot.send_message(chat_id, "لطفاً از منوی بازشده در پایین صفحه استفاده کنید:", components=gender_keyboard())
+            await send_callback_message(query, "⚧ لطفاً جنسیت جدید را انتخاب کنید:", components=edit_other_back_inline_keyboard())
+            return
+
     if data == "other_back":
         state = state_manager.get_state(user_id)
         bot = query.message.get_bot()
         chat_id = query.message.chat_id
         
-        if state == OTHER_PATIENT_NATIONAL_ID:
-            state_manager.set_state(user_id, OTHER_PATIENT_NAME)
-            await send_callback_message(query, "👥 ثبت اطلاعات فرد دیگر\n\nلطفاً نام و نام خانوادگی فرد موردنظر را وارد کنید:\n\n(مثال: علی رضایی)", components=other_cancel_inline_keyboard())
+        if state == OTHER_PATIENT_NAME:
+            state_manager.set_state(user_id, OTHER_PATIENT_NATIONAL_ID)
+            await send_callback_message(query, "👥 ثبت نوبت برای شخص دیگر\n\nابتدا لطفاً کد ملی ۱۰ رقمی فرد موردنظر را وارد کنید:\n\n(مثال: 0012345678)", components=other_cancel_inline_keyboard())
             return
         elif state == OTHER_PATIENT_PHONE:
-            state_manager.set_state(user_id, OTHER_PATIENT_NATIONAL_ID)
-            await send_callback_message(query, "💳 لطفاً کد ملی ۱۰ رقمی را وارد کنید:\n\n(مثال: 0012345678)", components=other_back_inline_keyboard())
+            state_manager.set_state(user_id, OTHER_PATIENT_NAME)
+            await send_callback_message(query, "👤 این کد ملی در سیستم ثبت نشده است.\n\nلطفاً نام و نام خانوادگی بیمار را وارد کنید:\n\n(مثال: علی رضایی)", components=other_back_inline_keyboard())
             return
         elif state == OTHER_PATIENT_GENDER:
             state_manager.set_state(user_id, OTHER_PATIENT_PHONE)
@@ -142,6 +169,11 @@ async def handle_callback(query: CallbackQuery) -> None:
             state_manager.set_state(user_id, OTHER_PATIENT_GENDER)
             await bot.send_message(chat_id, "لطفاً از منوی بازشده در پایین صفحه استفاده کنید:", components=gender_keyboard())
             await send_callback_message(query, "⚧ لطفاً جنسیت را انتخاب کنید:", components=other_back_inline_keyboard())
+            return
+        # اگر کاربر در حال مشاهده پرونده شخص دیگر باشد و دکمه بازگشت را بزند
+        elif state == "BOOKING_OTHER_CONFIRM":
+            state_manager.set_state(user_id, OTHER_PATIENT_NATIONAL_ID)
+            await send_callback_message(query, "👥 ثبت نوبت برای شخص دیگر\n\nابتدا لطفاً کد ملی ۱۰ رقمی فرد موردنظر را وارد کنید:\n\n(مثال: 0012345678)", components=other_cancel_inline_keyboard())
             return
 
     if (

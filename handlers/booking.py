@@ -8,7 +8,8 @@ from utils.helpers import to_persian_date, to_date_label, get_service_display_na
 from utils.keyboards import (
     booking_target_keyboard, booking_services_keyboard, booking_dates_keyboard, booking_times_keyboard,
     booking_checkout_keyboard, booking_confirmation_keyboard, back_to_services_keyboard,
-    other_cancel_inline_keyboard, other_back_inline_keyboard, gender_keyboard, insurance_keyboard, main_keyboard
+    other_cancel_inline_keyboard, other_back_inline_keyboard, gender_keyboard, insurance_keyboard, main_keyboard,
+    other_patient_confirm_keyboard, edit_other_cancel_inline_keyboard, edit_other_back_inline_keyboard
 )
 from utils.state_manager import state_manager
 from utils.validators import validate_full_name, validate_national_id, validate_phone_number
@@ -20,11 +21,16 @@ BOOKING_DATE = "booking_date"
 BOOKING_TIME = "booking_time"
 BOOKING_CHECKOUT = "booking_checkout"
 
-OTHER_PATIENT_NAME = "booking_other_name"
 OTHER_PATIENT_NATIONAL_ID = "booking_other_national_id"
+OTHER_PATIENT_NAME = "booking_other_name"
 OTHER_PATIENT_PHONE = "booking_other_phone"
 OTHER_PATIENT_GENDER = "booking_other_gender"
 OTHER_PATIENT_INSURANCE = "booking_other_insurance"
+
+EDIT_OTHER_NAME = "edit_other_name"
+EDIT_OTHER_PHONE = "edit_other_phone"
+EDIT_OTHER_GENDER = "edit_other_gender"
+EDIT_OTHER_INSURANCE = "edit_other_insurance"
 
 SERVICE_DEFINITIONS = {
     "ویزیت دکتر گرایلی": False,
@@ -41,6 +47,8 @@ SERVICE_DEFINITIONS = {
 
 GENDER_MAP = {"آقا": "male", "خانم": "female"}
 INSURANCE_MAP = {"سلامت": "health", "تأمین اجتماعی": "social_security", "نیروهای مسلح": "armed_forces", "بدون بیمه": "none"}
+GENDER_DISPLAY = {"male": "آقا", "female": "خانم"}
+INSURANCE_DISPLAY = {"health": "سلامت", "social_security": "تأمین اجتماعی", "armed_forces": "نیروهای مسلح", "none": "بدون بیمه"}
 
 def get_selected_patient(user_id: int):
     user = repository.get_user_by_bale_id(user_id)
@@ -101,6 +109,43 @@ async def show_services(target, user_id: int):
     if isinstance(target, CallbackQuery): await send_callback_message(target, text, components=keyboard)
     else: await target.reply(text, components=keyboard)
 
+async def show_other_patient_profile(target, user_id: int, patient: dict):
+    text = (
+        "🪪 **پرونده بیمار یافت شد:**\n\n"
+        f"👤 نام: {patient.get('first_name','')} {patient.get('last_name','')}\n"
+        f"💳 کد ملی: {patient.get('national_id','')}\n"
+        f"📱 تلفن: {patient.get('phone_number','')}\n"
+        f"⚧ جنسیت: {GENDER_DISPLAY.get(patient.get('gender', 'male'), 'نامشخص')}\n"
+        f"🏥 بیمه: {INSURANCE_DISPLAY.get(patient.get('insurance', 'none'), 'نامشخص')}\n\n"
+        "لطفاً از گزینه‌های زیر استفاده کنید 👇"
+    )
+    state_manager.set_state(user_id, "BOOKING_OTHER_CONFIRM")
+    if isinstance(target, CallbackQuery):
+        await send_callback_message(target, text, components=other_patient_confirm_keyboard())
+    else:
+        await send_tracked_message(target, user_id, text, components=other_patient_confirm_keyboard())
+
+async def handle_booking_other_callback(query: CallbackQuery):
+    user_id = query.user.id
+    data = query.data or ""
+    if not data.startswith("booking_other:"): return
+    action = data.split(":", 1)[1]
+    
+    if action == "proceed":
+        await show_services(query, user_id)
+    elif action == "edit":
+        state_manager.set_state(user_id, EDIT_OTHER_NAME)
+        bot = query.message.get_bot()
+        chat_id = query.message.chat_id
+        await activate_text_keyboard(bot, chat_id, is_registered=True)
+        text = "✏️ **ویرایش اطلاعات**\n\n👤 لطفاً نام و نام خانوادگی جدید را وارد کنید:\n\n(مثال: علی رضایی)"
+        await send_callback_message(query, text, components=edit_other_cancel_inline_keyboard())
+    elif action == "cancel_edit":
+        national_id = state_manager.get_data(user_id, "other_national_id")
+        patient = repository.get_patient_by_national_id(national_id)
+        if patient:
+            await show_other_patient_profile(query, user_id, patient)
+
 async def handle_booking_start(message: Message):
     user_id = message.author.id
     user = repository.get_user_by_bale_id(user_id)
@@ -142,13 +187,13 @@ async def handle_booking_target_callback(query: CallbackQuery):
     if target == "other":
         state_manager.clear_state(user_id)
         state_manager.set_data(user_id, "booking_target", "other")
-        state_manager.set_state(user_id, OTHER_PATIENT_NAME)
+        state_manager.set_state(user_id, OTHER_PATIENT_NATIONAL_ID)
         bot = query.message.get_bot()
         chat_id = query.message.chat_id
         try: await query.message.delete()
         except: pass
         await activate_text_keyboard(bot, chat_id, is_registered=True)
-        text = "👥 ثبت اطلاعات فرد دیگر\n\nلطفاً نام و نام خانوادگی فرد موردنظر را وارد کنید:\n\n(مثال: علی رضایی)"
+        text = "👥 ثبت نوبت برای شخص دیگر\n\nابتدا لطفاً کد ملی ۱۰ رقمی فرد موردنظر را وارد کنید:\n\n(مثال: 0012345678)"
         msg = await bot.send_message(chat_id, text, components=other_cancel_inline_keyboard())
         msg_id = get_msg_id(msg)
         if msg_id: 
@@ -308,18 +353,23 @@ async def handle_booking_checkout_callback(query: CallbackQuery):
         user, patient = get_selected_patient(user_id)
 
         if target == "other":
-            try:
-                patient_id = repository.create_patient(
-                    user_id=None, national_id=data_cache["other_national_id"], first_name=data_cache["other_first_name"],
-                    last_name=data_cache["other_last_name"], phone_number=data_cache["other_phone"], birth_date=None,
-                    gender=data_cache["other_gender"], insurance=data_cache["other_insurance"]
-                )
-                repository.add_patient_profile(user["id"], patient_id)
-            except Exception:
-                from utils.keyboards import clinic_info_keyboard
-                await send_callback_message(query, "❌ خطا در ذخیره اطلاعات. لطفاً مجدداً تلاش کنید.", components=clinic_info_keyboard())
-                state_manager.clear_state(user_id)
-                return
+            if data_cache.get("other_patient_exists"):
+                patient_id = data_cache.get("booking_patient_id")
+                try: repository.add_patient_profile(user["id"], patient_id)
+                except: pass
+            else:
+                try:
+                    patient_id = repository.create_patient(
+                        user_id=None, national_id=data_cache["other_national_id"], first_name=data_cache["other_first_name"],
+                        last_name=data_cache["other_last_name"], phone_number=data_cache["other_phone"], birth_date=None,
+                        gender=data_cache["other_gender"], insurance=data_cache["other_insurance"]
+                    )
+                    repository.add_patient_profile(user["id"], patient_id)
+                except Exception:
+                    from utils.keyboards import clinic_info_keyboard
+                    await send_callback_message(query, "❌ خطا در ذخیره اطلاعات. لطفاً مجدداً تلاش کنید.", components=clinic_info_keyboard())
+                    state_manager.clear_state(user_id)
+                    return
         else:
             if not patient: 
                 from utils.keyboards import clinic_info_keyboard
@@ -410,10 +460,43 @@ async def process_booking_message(message: Message) -> bool:
 
     if not value: return True
 
+    if state == OTHER_PATIENT_NATIONAL_ID:
+        if not validate_national_id(value):
+            await send_tracked_message(message, user_id, "کد ملی نامعتبر است. لطفاً دقیقاً ۱۰ رقم وارد کنید.", components=other_back_inline_keyboard())
+            return True
+
+        await safe_delete_previous_inline(message, user_id)
+
+        user, patient = get_selected_patient(user_id)
+        if patient and patient.get("national_id") == value:
+            from utils.keyboards import booking_target_keyboard
+            state_manager.clear_state(user_id)
+            state_manager.set_state(user_id, BOOKING_TARGET)
+            await send_tracked_message(message, user_id, "⚠️ این کد ملی متعلق به حساب کاربری خود شماست.\n\nبرای دریافت نوبت برای خودتان، لطفاً از گزینه «👤 برای خودم» استفاده کنید:", components=booking_target_keyboard())
+            return True
+
+        existing_patient = repository.get_patient_by_national_id(value)
+
+        if existing_patient:
+            state_manager.set_data(user_id, "other_national_id", value)
+            state_manager.set_data(user_id, "other_patient_exists", True)
+            state_manager.set_data(user_id, "booking_patient_id", existing_patient["id"])
+            state_manager.set_data(user_id, "other_gender", existing_patient.get("gender", "male"))
+            state_manager.set_data(user_id, "patient_full_name", f"{existing_patient.get('first_name','')} {existing_patient.get('last_name','')}")
+
+            await show_other_patient_profile(message, user_id, existing_patient)
+        else:
+            state_manager.set_data(user_id, "other_national_id", value)
+            state_manager.set_data(user_id, "other_patient_exists", False)
+            state_manager.set_state(user_id, OTHER_PATIENT_NAME)
+            await send_tracked_message(message, user_id, "👤 این کد ملی در سیستم ثبت نشده است.\n\nلطفاً نام و نام خانوادگی بیمار را وارد کنید:\n\n(مثال: علی رضایی)", components=other_back_inline_keyboard())
+        return True
+
+    # ------------------ ثبت شخص جدید ------------------
     if state == OTHER_PATIENT_NAME:
         normalized = " ".join(value.split())
         if not validate_full_name(normalized):
-            await send_tracked_message(message, user_id, "نام معتبر نیست.\n\n(مثال: علی رضایی)", components=other_cancel_inline_keyboard())
+            await send_tracked_message(message, user_id, "نام معتبر نیست.\n\n(مثال: علی رضایی)", components=other_back_inline_keyboard())
             return True
             
         await safe_delete_previous_inline(message, user_id)
@@ -421,17 +504,7 @@ async def process_booking_message(message: Message) -> bool:
         state_manager.set_data(user_id, "other_first_name", parts[0])
         state_manager.set_data(user_id, "other_last_name", " ".join(parts[1:]))
         state_manager.set_data(user_id, "patient_full_name", normalized)
-        state_manager.set_state(user_id, OTHER_PATIENT_NATIONAL_ID)
-        await send_tracked_message(message, user_id, "💳 لطفاً کد ملی ۱۰ رقمی را وارد کنید:\n\n(مثال: 0012345678)", components=other_back_inline_keyboard())
-        return True
-
-    if state == OTHER_PATIENT_NATIONAL_ID:
-        if not validate_national_id(value):
-            await send_tracked_message(message, user_id, "کد ملی نامعتبر است.", components=other_back_inline_keyboard())
-            return True
-            
-        await safe_delete_previous_inline(message, user_id)
-        state_manager.set_data(user_id, "other_national_id", value)
+        
         state_manager.set_state(user_id, OTHER_PATIENT_PHONE)
         await send_tracked_message(message, user_id, "📱 لطفاً شماره موبایل را وارد کنید:\n\n(مثال: 09123456789)", components=other_back_inline_keyboard())
         return True
@@ -451,6 +524,7 @@ async def process_booking_message(message: Message) -> bool:
 
     if state == OTHER_PATIENT_GENDER:
         if value not in GENDER_MAP:
+            await message.reply("لطفاً از منوی بازشده در پایین صفحه استفاده کنید:", components=gender_keyboard())
             await send_tracked_message(message, user_id, "لطفاً منحصراً از دکمه‌های پایین صفحه استفاده کنید.", components=other_back_inline_keyboard())
             return True
             
@@ -465,6 +539,7 @@ async def process_booking_message(message: Message) -> bool:
 
     if state == OTHER_PATIENT_INSURANCE:
         if value not in INSURANCE_MAP:
+            await message.reply("لطفاً از منوی بازشده در پایین صفحه استفاده کنید:", components=insurance_keyboard())
             await send_tracked_message(message, user_id, "لطفاً منحصراً از دکمه‌های پایین صفحه استفاده کنید.", components=other_back_inline_keyboard())
             return True
             
@@ -473,8 +548,94 @@ async def process_booking_message(message: Message) -> bool:
         state_manager.set_data(user_id, "other_insurance", INSURANCE_MAP[value])
         
         await message.reply("✅ اطلاعات فرد دریافت شد.\nدر حال انتقال به بخش انتخاب خدمات...", components=main_keyboard())
+        await asyncio.sleep(0.5)
         await show_services(message, user_id)
         return True
+
+
+    # ------------------ ویرایش شخص دیگر ------------------
+    if state == EDIT_OTHER_NAME:
+        normalized = " ".join(value.split())
+        if not validate_full_name(normalized):
+            await send_tracked_message(message, user_id, "نام معتبر نیست.\n\n(مثال: علی رضایی)", components=edit_other_cancel_inline_keyboard())
+            return True
+            
+        await safe_delete_previous_inline(message, user_id)
+        parts = normalized.split()
+        state_manager.set_data(user_id, "edit_other_first_name", parts[0])
+        state_manager.set_data(user_id, "edit_other_last_name", " ".join(parts[1:]))
+        state_manager.set_state(user_id, EDIT_OTHER_PHONE)
+        await send_tracked_message(message, user_id, "📱 لطفاً شماره موبایل جدید را وارد کنید:\n\n(مثال: 09123456789)", components=edit_other_back_inline_keyboard())
+        return True
+
+    if state == EDIT_OTHER_PHONE:
+        if not validate_phone_number(value):
+            await send_tracked_message(message, user_id, "شماره موبایل نامعتبر است.", components=edit_other_back_inline_keyboard())
+            return True
+            
+        await safe_delete_previous_inline(message, user_id)
+        state_manager.set_data(user_id, "edit_other_phone", value)
+        state_manager.set_state(user_id, EDIT_OTHER_GENDER)
+        
+        await message.reply("لطفاً از منوی بازشده در پایین صفحه استفاده کنید:", components=gender_keyboard())
+        await send_tracked_message(message, user_id, "⚧ لطفاً جنسیت جدید را انتخاب کنید:", components=edit_other_back_inline_keyboard())
+        return True
+
+    if state == EDIT_OTHER_GENDER:
+        if value not in GENDER_MAP:
+            await message.reply("لطفاً از منوی بازشده در پایین صفحه استفاده کنید:", components=gender_keyboard())
+            await send_tracked_message(message, user_id, "لطفاً منحصراً از دکمه‌های پایین صفحه استفاده کنید.", components=edit_other_back_inline_keyboard())
+            return True
+            
+        await safe_delete_previous_inline(message, user_id)
+        
+        state_manager.set_data(user_id, "edit_other_gender", GENDER_MAP[value])
+        state_manager.set_state(user_id, EDIT_OTHER_INSURANCE)
+        
+        await message.reply("لطفاً از منوی بازشده در پایین صفحه استفاده کنید:", components=insurance_keyboard())
+        await send_tracked_message(message, user_id, "🏥 لطفاً بیمه جدید را انتخاب کنید:", components=edit_other_back_inline_keyboard())
+        return True
+
+    if state == EDIT_OTHER_INSURANCE:
+        if value not in INSURANCE_MAP:
+            await message.reply("لطفاً از منوی بازشده در پایین صفحه استفاده کنید:", components=insurance_keyboard())
+            await send_tracked_message(message, user_id, "لطفاً منحصراً از دکمه‌های پایین صفحه استفاده کنید.", components=edit_other_back_inline_keyboard())
+            return True
+            
+        await safe_delete_previous_inline(message, user_id)
+        state_manager.set_data(user_id, "edit_other_insurance", INSURANCE_MAP[value])
+        
+        data_cache = state_manager.get_all_data(user_id)
+        patient_id = data_cache.get("booking_patient_id")
+        national_id = data_cache.get("other_national_id")
+
+        try:
+            try:
+                repository.update_patient(
+                    patient_id=patient_id, first_name=data_cache["edit_other_first_name"], last_name=data_cache["edit_other_last_name"],
+                    phone_number=data_cache["edit_other_phone"], birth_date=None,
+                    gender=data_cache["edit_other_gender"], insurance=data_cache["edit_other_insurance"], national_id=national_id
+                )
+            except TypeError:
+                repository.update_patient(
+                    patient_id=patient_id, first_name=data_cache["edit_other_first_name"], last_name=data_cache["edit_other_last_name"],
+                    phone_number=data_cache["edit_other_phone"], birth_date=None,
+                    gender=data_cache["edit_other_gender"], insurance=data_cache["edit_other_insurance"]
+                )
+        except Exception:
+            await message.reply("❌ خطا در ثبت اطلاعات.")
+            return True
+
+        state_manager.set_data(user_id, "other_gender", data_cache["edit_other_gender"])
+        state_manager.set_data(user_id, "patient_full_name", f"{data_cache['edit_other_first_name']} {data_cache['edit_other_last_name']}")
+        
+        await message.reply("✅ اطلاعات شخص با موفقیت ویرایش شد.", components=main_keyboard())
+        await asyncio.sleep(0.5)
+        
+        updated_patient = repository.get_patient_by_national_id(national_id)
+        await show_other_patient_profile(message, user_id, updated_patient)
+        return True
+
 
     if state in (BOOKING_SERVICE, BOOKING_DATE, BOOKING_TIME, BOOKING_CHECKOUT):
         await message.reply("لطفاً از طریق دکمه‌های شیشه‌ای نمایش‌داده‌شده در بالا انتخاب خود را انجام دهید.")
