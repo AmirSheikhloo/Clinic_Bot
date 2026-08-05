@@ -41,20 +41,16 @@ def to_jalali_date(date_string: str) -> str:
     except (ValueError, TypeError):
         return date_string
 
-def to_persian_digits(value: str) -> str:
-    translation = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
-    return str(value).translate(translation)
-
 def to_persian_date(date_string: str) -> str:
-    return to_persian_digits(to_jalali_date(date_string))
+    # خروجی مستقیم با اعداد انگلیسی استاندارد
+    return to_jalali_date(date_string)
 
 def to_short_persian_date(date_string: str) -> str:
     try:
         year, month, day = map(int, date_string.split("-"))
         jalali = jdatetime.date.fromgregorian(year=year, month=month, day=day)
         short_year = jalali.year % 100
-        result = f"{short_year:02d}/{jalali.month:02d}/{jalali.day:02d}"
-        return to_persian_digits(result)
+        return f"{short_year:02d}/{jalali.month:02d}/{jalali.day:02d}"
     except (ValueError, TypeError):
         return date_string
 

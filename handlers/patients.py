@@ -8,7 +8,7 @@ from utils.keyboards import (
     edit_cancel_inline_keyboard, edit_back_inline_keyboard
 )
 from utils.state_manager import state_manager
-from utils.validators import validate_full_name, validate_national_id, validate_phone_number
+from utils.validators import validate_full_name, validate_national_id, validate_phone_number, normalize_digits
 from utils.helpers import send_welcome_message, get_msg_id, activate_text_keyboard
 
 REGISTRATION_NAME = "registration_name"
@@ -100,6 +100,9 @@ async def process_registration_message(message: Message) -> bool:
         if not validate_national_id(value):
             await send_tracked_message(message, user_id, "کد ملی واردشده معتبر نمی‌باشد.\nکد ملی باید دقیقاً ۱۰ رقم باشد. لطفاً مجدداً بررسی و ارسال کنید.", components=cancel_back_inline_keyboard("❌ لغو ثبت‌نام"))
             return True
+            
+        value = normalize_digits(value) # انگلیسی کردن عدد قبل از پردازش
+        
         if repository.get_patient_by_national_id(value) is not None:
             await safe_delete_previous_inline(message, user_id)
             await message.reply("این کد ملی قبلاً در سامانه ثبت شده است. در صورت بروز اشتباه، لطفاً با پذیرش درمانگاه تماس بگیرید.", components=register_keyboard())
@@ -117,6 +120,7 @@ async def process_registration_message(message: Message) -> bool:
             await send_tracked_message(message, user_id, "شماره موبایل واردشده صحیح نیست.\nشماره موبایل باید ۱۱ رقم باشد و با 09 شروع شود.", components=cancel_back_inline_keyboard("❌ لغو ثبت‌نام"))
             return True
             
+        value = normalize_digits(value) # انگلیسی کردن عدد
         await safe_delete_previous_inline(message, user_id)
         state_manager.set_data(user_id, "phone_number", value)
         state_manager.set_state(user_id, REGISTRATION_GENDER)
@@ -264,6 +268,7 @@ async def process_edit_message(message: Message, state: str, value: str) -> bool
             await send_tracked_message(message, user_id, "کد ملی نامعتبر است. لطفاً مجدداً بررسی کنید.", components=edit_back_inline_keyboard("❌ لغو ویرایش"))
             return True
             
+        value = normalize_digits(value) # انگلیسی کردن عدد
         await safe_delete_previous_inline(message, user_id)
         state_manager.set_data(user_id, "edit_national_id", value)
         state_manager.set_state(user_id, EDIT_PHONE)
@@ -275,6 +280,7 @@ async def process_edit_message(message: Message, state: str, value: str) -> bool
             await send_tracked_message(message, user_id, "شماره موبایل نامعتبر است. لطفاً مجدداً بررسی کنید.", components=edit_back_inline_keyboard("❌ لغو ویرایش"))
             return True
             
+        value = normalize_digits(value) # انگلیسی کردن عدد
         await safe_delete_previous_inline(message, user_id)
         state_manager.set_data(user_id, "edit_phone_number", value)
         state_manager.set_state(user_id, EDIT_GENDER)

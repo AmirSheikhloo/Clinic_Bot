@@ -12,7 +12,7 @@ from utils.keyboards import (
     other_patient_confirm_keyboard, edit_other_cancel_inline_keyboard, edit_other_back_inline_keyboard
 )
 from utils.state_manager import state_manager
-from utils.validators import validate_full_name, validate_national_id, validate_phone_number
+from utils.validators import validate_full_name, validate_national_id, validate_phone_number, normalize_digits
 from handlers.patients import REGISTRATION_NAME, safe_delete_previous_inline, send_tracked_message
 
 BOOKING_TARGET = "booking_target"
@@ -315,7 +315,7 @@ async def handle_booking_time_callback(query: CallbackQuery):
         f"🏥 خدمت: {service_name}\n"
         f"⚧ جنسیت: {gender_text}\n"
         f"📅 تاریخ: {to_date_label(appointment_date)}\n"
-        f"🕐 ساعت: {start_time}\n\n"
+        f"🕒 ساعت: {start_time}\n\n"
         "در صورت صحت اطلاعات، روی «✅ تأیید و ثبت نهایی» کلیک کنید."
     )
     await send_callback_message(query, summary_text, components=booking_checkout_keyboard())
@@ -418,7 +418,7 @@ async def handle_booking_checkout_callback(query: CallbackQuery):
             f"✅ نوبت با موفقیت ثبت نهایی شد.\n\n"
             f"🏥 خدمت: {service_name}\n"
             f"📅 تاریخ: {to_persian_date(appointment_date)}\n"
-            f"🕐 ساعت: {start_time}\n"
+            f"🕒 ساعت: {start_time}\n"
             f"🔖 کد پیگیری: CF-{appointment_id:06d}\n\n\n"
             f"🔸 جهت مشاهده جزئیات نوبت و یا لغو آن، از منوی «📋 نوبت‌های من» اقدام کنید.\n\n"
             f"🔸 امکان لغو نوبت تنها تا ۲۴ ساعت قبل* از زمان رزرو وجود دارد."
@@ -465,6 +465,7 @@ async def process_booking_message(message: Message) -> bool:
             await send_tracked_message(message, user_id, "کد ملی نامعتبر است. لطفاً دقیقاً ۱۰ رقم وارد کنید.", components=other_back_inline_keyboard())
             return True
 
+        value = normalize_digits(value) # انگلیسی کردن عدد قبل از پردازش
         await safe_delete_previous_inline(message, user_id)
 
         user, patient = get_selected_patient(user_id)
@@ -514,6 +515,7 @@ async def process_booking_message(message: Message) -> bool:
             await send_tracked_message(message, user_id, "شماره موبایل نامعتبر است.", components=other_back_inline_keyboard())
             return True
             
+        value = normalize_digits(value) # انگلیسی کردن عدد
         await safe_delete_previous_inline(message, user_id)
         state_manager.set_data(user_id, "other_phone", value)
         state_manager.set_state(user_id, OTHER_PATIENT_GENDER)
@@ -547,7 +549,7 @@ async def process_booking_message(message: Message) -> bool:
         
         state_manager.set_data(user_id, "other_insurance", INSURANCE_MAP[value])
         
-        await message.reply("✅ اطلاعات فرد دریافت شد.\nدر حال انتقال به بخش انتخاب خدمات...", components=main_keyboard())
+        await message.reply("✅ اطلاعات فرد دریافت شد.\در حال انتقال به بخش انتخاب خدمات...", components=main_keyboard())
         await asyncio.sleep(0.5)
         await show_services(message, user_id)
         return True
@@ -573,6 +575,7 @@ async def process_booking_message(message: Message) -> bool:
             await send_tracked_message(message, user_id, "شماره موبایل نامعتبر است.", components=edit_other_back_inline_keyboard())
             return True
             
+        value = normalize_digits(value) # انگلیسی کردن عدد
         await safe_delete_previous_inline(message, user_id)
         state_manager.set_data(user_id, "edit_other_phone", value)
         state_manager.set_state(user_id, EDIT_OTHER_GENDER)

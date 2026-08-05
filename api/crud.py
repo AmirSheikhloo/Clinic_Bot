@@ -16,7 +16,7 @@ def get_dashboard_stats() -> Dict[str, Any]:
         cursor.execute("SELECT COUNT(*) as total FROM patients")
         patients_count = cursor.fetchone()["total"]
         
-        cursor.execute("SELECT COUNT(*) as total FROM appointments WHERE status = 'scheduled'")
+        cursor.execute("SELECT COUNT(*) as total FROM appointments WHERE status IN ('scheduled', 'accepted')")
         active_appointments = cursor.fetchone()["total"]
         
         cursor.execute("SELECT COUNT(*) as total FROM appointments WHERE status = 'cancelled'")
@@ -38,6 +38,16 @@ def get_all_patients() -> List[Dict[str, Any]]:
         cursor.execute("SELECT * FROM patients ORDER BY id DESC")
         return [dict(row) for row in cursor.fetchall()]
 
+def create_patient_by_staff(first_name: str, last_name: str, national_id: str, phone_number: str, gender: str = "male", insurance: str = "none") -> int:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO patients (first_name, last_name, national_id, phone_number, gender, insurance) VALUES (?, ?, ?, ?, ?, ?)",
+            (first_name, last_name, national_id, phone_number, gender, insurance)
+        )
+        conn.commit()
+        return cursor.lastrowid
+
 def get_all_appointments() -> List[Dict[str, Any]]:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = get_dict_cursor(conn)
@@ -58,5 +68,19 @@ def update_appointment_status(appointment_id: int, status: str) -> bool:
             "UPDATE appointments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (status, appointment_id)
         )
+        conn.commit()
+        return cursor.rowcount > 0
+
+def add_service(name: str, price: int = 0) -> int:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO services (name, price, is_active) VALUES (?, ?, 1)", (name, price))
+        conn.commit()
+        return cursor.lastrowid
+
+def toggle_service_status(service_id: int, is_active: int) -> bool:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE services SET is_active = ? WHERE id = ?", (is_active, service_id))
         conn.commit()
         return cursor.rowcount > 0

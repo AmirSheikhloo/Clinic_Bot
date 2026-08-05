@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { Check, X } from "lucide-react";
+import { Check, X, Search, Download } from "lucide-react";
+import * as XLSX from "xlsx-js-style";
 
 interface Appointment {
   id: number;
@@ -13,47 +14,145 @@ interface Appointment {
   appointment_date: string;
   start_time: string;
   status: string;
+  created_at: string;
 }
+
+const toEnglishDigits = (str: string | null) => {
+  if (!str) return "";
+  const persianNumbers = [/۰/g, /۱/g, /۲/g, /۳/g, /۴/g, /۵/g, /۶/g, /۷/g, /۸/g, /۹/g];
+  const arabicNumbers = [/٠/g, /١/g, /٢/g, /٣/g, /٤/g, /٥/g, /٦/g, /٧/g, /٨/g, /٩/g];
+  let result = String(str);
+  for (let i = 0; i < 10; i++) {
+    result = result.replace(persianNumbers[i], String(i)).replace(arabicNumbers[i], String(i));
+  }
+  return result;
+};
+
+const formatJalaliDate = (dateString: string) => {
+  if (!dateString) return "";
+  const date = new Date(dateString);
+  return new Intl.DateTimeFormat("fa-IR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    numberingSystem: "latn",
+  }).format(date);
+};
+
+const formatJalaliDateTime = (dbDateString: string) => {
+  if (!dbDateString) return "";
+  // تبدیل فرمت دیتابیس به فرمت استاندارد برای جاوااسکریپت (رفع مشکل منطقه زمانی)
+  const safeDateString = dbDateString.includes("T") ? dbDateString : dbDateString.replace(" ", "T") + "Z";
+  const date = new Date(safeDateString);
+  return new Intl.DateTimeFormat("fa-IR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    numberingSystem: "latn",
+  }).format(date);
+};
+
+const formatTrackingCode = (id: number) => {
+  return `CF-${String(id).padStart(6, '0')}`;
+};
 
 export default function AppointmentsPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(true);
-  const [refreshTrigger, setRefreshTrigger] = useState(0); // استیت جدید برای رفرش کردن جدول
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
 
   useEffect(() => {
-    // تابع فچ کردن دیتا دقیقاً داخل useEffect تعریف می‌شود تا ارور ESLint برطرف شود
     const fetchAppointments = async () => {
       try {
         const res = await fetch("http://127.0.0.1:8000/api/appointments");
-        const data = await res.json();
-        setAppointments(data);
-      } catch (error) {
-        console.error("Error fetching appointments:", error);
+        const data: Appointment[] = await res.json();
+        
+        const formattedData = data.map(appt => ({
+          ...appt,
+          national_id: toEnglishDigits(appt.national_id),
+          phone_number: toEnglishDigits(appt.phone_number),
+          start_time: toEnglishDigits(appt.start_time),
+          appointment_date: formatJalaliDate(appt.appointment_date)
+        }));
+        
+        setAppointments(formattedData);
+      } catch {
       } finally {
         setLoading(false);
       }
     };
 
     fetchAppointments();
-  }, [refreshTrigger]); // هر بار این مقدار تغییر کند، لیست نوبت‌ها دوباره از سرور گرفته می‌شود
+  }, [refreshTrigger]);
 
   const handleStatusChange = async (id: number, newStatus: string) => {
     try {
       const res = await fetch(`http://127.0.0.1:8000/api/appointments/${id}/status`, {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
       });
 
       if (res.ok) {
-        // به جای صدا زدن تابع، فقط تریگر را تغییر می‌دهیم تا جدول خودش آپدیت شود
         setRefreshTrigger(prev => prev + 1);
       }
-    } catch (error) {
-      console.error("Error updating status:", error);
+    } catch {}
+  };
+
+  const query = toEnglishDigits(searchQuery.trim().toLowerCase());
+  
+  const filteredAppointments = query
+    ? appointments.filter((a) => {
+        const trackingCode = formatTrackingCode(a.id).toLowerCase();
+        return (
+          trackingCode.includes(query) ||
+          a.id.toString() === query ||
+          a.first_name.includes(query) ||
+          a.last_name.includes(query) ||
+          (a.national_id && a.national_id.includes(query)) ||
+          (a.phone_number && a.phone_number.includes(query)) ||
+          (a.service_name && a.service_name.includes(query))
+        );
+      })
+    : appointments;
+
+  const handleExportExcel = () => {
+    const exportData = filteredAppointments.map((a, index) => ({
+      "ردیف": index + 1,
+      "نام و نام خانوادگی": `${a.first_name} ${a.last_name}`,
+      "کد ملی": a.national_id || "ثبت نشده",
+      "شماره تماس": a.phone_number,
+      "خدمت": a.service_name,
+      "تاریخ مراجعه": a.appointment_date,
+      "ساعت مراجعه": a.start_time,
+      "وضعیت": a.status === 'scheduled' ? 'در انتظار' : 
+               a.status === 'accepted' ? 'پذیرش شده' : 
+               a.status === 'cancelled' ? 'لغو شده' : a.status,
+      "کد پیگیری": formatTrackingCode(a.id),
+      "زمان ثبت نوبت در سیستم": formatJalaliDateTime(a.created_at)
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    
+    worksheet['!cols'] = [
+      { wch: 8 }, { wch: 25 }, { wch: 15 }, { wch: 15 }, 
+      { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 25 }
+    ];
+
+    for (const i in worksheet) {
+      if (typeof worksheet[i] !== 'object') continue;
+      worksheet[i].s = {
+        alignment: { horizontal: "center", vertical: "center" }
+      };
     }
+
+    const workbook = XLSX.utils.book_new();
+    workbook.Workbook = { Views: [{ RTL: true }] };
+    XLSX.utils.book_append_sheet(workbook, worksheet, "نوبت‌ها");
+    XLSX.writeFile(workbook, "Appointments_List.xlsx");
   };
 
   if (loading) {
@@ -66,8 +165,31 @@ export default function AppointmentsPage() {
 
   return (
     <div className="min-h-screen p-8">
-      <header className="mb-8 flex justify-between items-center">
+      <header className="mb-8 flex flex-col md:flex-row md:justify-between md:items-center gap-4">
         <h1 className="text-3xl font-bold text-gray-800">مدیریت نوبت‌ها</h1>
+        
+        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-center">
+          <div className="relative w-full sm:w-80 h-11">
+            <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+              <Search className="h-5 w-5 text-gray-400" />
+            </div>
+            <input
+              type="text"
+              className="block w-full h-full pr-10 pl-3 border border-gray-200 rounded-xl leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all shadow-sm"
+              placeholder="جستجوی کد پیگیری (CF)، بیمار..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          
+          <button
+            onClick={handleExportExcel}
+            className="flex h-11 items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-5 rounded-xl font-medium transition-colors shadow-sm whitespace-nowrap"
+          >
+            <Download className="w-5 h-5" />
+            خروجی اکسل
+          </button>
+        </div>
       </header>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
@@ -75,6 +197,7 @@ export default function AppointmentsPage() {
           <table className="w-full text-right">
             <thead className="bg-gray-50 border-b border-gray-100">
               <tr>
+                <th className="p-4 text-gray-600 font-medium text-sm">کد پیگیری</th>
                 <th className="p-4 text-gray-600 font-medium text-sm">بیمار</th>
                 <th className="p-4 text-gray-600 font-medium text-sm">شماره تماس</th>
                 <th className="p-4 text-gray-600 font-medium text-sm">خدمت</th>
@@ -84,12 +207,13 @@ export default function AppointmentsPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {appointments.map((appt) => (
+              {filteredAppointments.map((appt) => (
                 <tr key={appt.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="p-4 text-blue-600 font-mono font-medium text-sm bg-blue-50/30">{formatTrackingCode(appt.id)}</td>
                   <td className="p-4 text-gray-800 font-medium">{appt.first_name} {appt.last_name}</td>
-                  <td className="p-4 text-gray-600" dir="ltr">{appt.phone_number}</td>
+                  <td className="p-4 text-gray-600 font-mono text-sm" dir="ltr">{appt.phone_number}</td>
                   <td className="p-4 text-gray-800">{appt.service_name}</td>
-                  <td className="p-4 text-gray-600">{appt.appointment_date} | {appt.start_time}</td>
+                  <td className="p-4 text-gray-600 font-mono text-sm">{appt.appointment_date} | {appt.start_time}</td>
                   <td className="p-4">
                     <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                       appt.status === 'scheduled' ? 'bg-blue-100 text-blue-700' :
@@ -122,11 +246,6 @@ export default function AppointmentsPage() {
                   </td>
                 </tr>
               ))}
-              {appointments.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="p-8 text-center text-gray-500">هیچ نوبتی یافت نشد.</td>
-                </tr>
-              )}
             </tbody>
           </table>
         </div>
