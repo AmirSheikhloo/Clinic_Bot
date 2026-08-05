@@ -6,6 +6,8 @@ import * as XLSX from "xlsx-js-style";
 
 interface Appointment {
   id: number;
+  user_id?: number | null;
+  source?: string;
   first_name: string;
   last_name: string;
   national_id: string;
@@ -28,20 +30,8 @@ const toEnglishDigits = (str: string | null) => {
   return result;
 };
 
-const formatJalaliDate = (dateString: string) => {
-  if (!dateString) return "";
-  const date = new Date(dateString);
-  return new Intl.DateTimeFormat("fa-IR", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    numberingSystem: "latn",
-  }).format(date);
-};
-
 const formatJalaliDateTime = (dbDateString: string) => {
   if (!dbDateString) return "";
-  // تبدیل فرمت دیتابیس به فرمت استاندارد برای جاوااسکریپت (رفع مشکل منطقه زمانی)
   const safeDateString = dbDateString.includes("T") ? dbDateString : dbDateString.replace(" ", "T") + "Z";
   const date = new Date(safeDateString);
   return new Intl.DateTimeFormat("fa-IR", {
@@ -74,8 +64,7 @@ export default function AppointmentsPage() {
           ...appt,
           national_id: toEnglishDigits(appt.national_id),
           phone_number: toEnglishDigits(appt.phone_number),
-          start_time: toEnglishDigits(appt.start_time),
-          appointment_date: formatJalaliDate(appt.appointment_date)
+          start_time: toEnglishDigits(appt.start_time)
         }));
         
         setAppointments(formattedData);
@@ -130,7 +119,9 @@ export default function AppointmentsPage() {
       "ساعت مراجعه": a.start_time,
       "وضعیت": a.status === 'scheduled' ? 'در انتظار' : 
                a.status === 'accepted' ? 'پذیرش شده' : 
-               a.status === 'cancelled' ? 'لغو شده' : a.status,
+               a.status === 'cancelled' ? 'لغو شده' : 
+               a.status === 'no_show' ? 'عدم مراجعه' : a.status,
+      "منبع دریافت نوبت": a.source === 'panel' ? "پنل مدیریت (توسط منشی)" : "ربات بله / تلگرام",
       "کد پیگیری": formatTrackingCode(a.id),
       "زمان ثبت نوبت در سیستم": formatJalaliDateTime(a.created_at)
     }));
@@ -139,7 +130,7 @@ export default function AppointmentsPage() {
     
     worksheet['!cols'] = [
       { wch: 8 }, { wch: 25 }, { wch: 15 }, { wch: 15 }, 
-      { wch: 20 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 25 }
+      { wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 25 }, { wch: 15 }, { wch: 25 }
     ];
 
     for (const i in worksheet) {
@@ -176,7 +167,7 @@ export default function AppointmentsPage() {
             <input
               type="text"
               className="block w-full h-full pr-10 pl-3 border border-gray-200 rounded-xl leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all shadow-sm"
-              placeholder="جستجوی کد پیگیری (CF)، بیمار..."
+              placeholder="جستجوی کد پیگیری، بیمار، خدمت..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
@@ -200,6 +191,7 @@ export default function AppointmentsPage() {
                 <th className="p-4 text-gray-600 font-medium text-sm">کد پیگیری</th>
                 <th className="p-4 text-gray-600 font-medium text-sm">بیمار</th>
                 <th className="p-4 text-gray-600 font-medium text-sm">شماره تماس</th>
+                <th className="p-4 text-gray-600 font-medium text-sm">منبع</th>
                 <th className="p-4 text-gray-600 font-medium text-sm">خدمت</th>
                 <th className="p-4 text-gray-600 font-medium text-sm">تاریخ و ساعت</th>
                 <th className="p-4 text-gray-600 font-medium text-sm">وضعیت</th>
@@ -212,6 +204,11 @@ export default function AppointmentsPage() {
                   <td className="p-4 text-blue-600 font-mono font-medium text-sm bg-blue-50/30">{formatTrackingCode(appt.id)}</td>
                   <td className="p-4 text-gray-800 font-medium">{appt.first_name} {appt.last_name}</td>
                   <td className="p-4 text-gray-600 font-mono text-sm" dir="ltr">{appt.phone_number}</td>
+                  <td className="p-4 text-sm font-medium">
+                    <span className={appt.source === 'panel' ? "text-gray-600 bg-gray-50 px-2 py-1 rounded" : "text-blue-600 bg-blue-50 px-2 py-1 rounded"}>
+                      {appt.source === 'panel' ? "پنل منشی" : "ربات بله"}
+                    </span>
+                  </td>
                   <td className="p-4 text-gray-800">{appt.service_name}</td>
                   <td className="p-4 text-gray-600 font-mono text-sm">{appt.appointment_date} | {appt.start_time}</td>
                   <td className="p-4">
@@ -223,7 +220,8 @@ export default function AppointmentsPage() {
                     }`}>
                       {appt.status === 'scheduled' ? 'در انتظار' : 
                        appt.status === 'accepted' ? 'پذیرش شده' : 
-                       appt.status === 'cancelled' ? 'لغو شده' : appt.status}
+                       appt.status === 'cancelled' ? 'لغو شده' : 
+                       appt.status === 'no_show' ? 'عدم مراجعه' : appt.status}
                     </span>
                   </td>
                   <td className="p-4 flex justify-center gap-2">

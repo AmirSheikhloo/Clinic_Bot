@@ -1,0 +1,4243 @@
+﻿
+
+==================================================
+FILE: bot.py
+==================================================
+from bale import Bot
+
+from config.config import BALE_TOKEN
+from database.migrations import run_migrations
+from database.seed import seed
+from database.repository import repository
+
+from handlers.start import handle_start
+from handlers.patients import (
+    handle_patient_registration,
+    handle_patient_lookup,
+    process_registration_message,
+    handle_patient_edit,
+)
+from handlers.appointments import (
+    handle_my_appointments,
+    handle_cancel_appointment,
+    process_cancel_appointment,
+)
+from handlers.booking import (
+    handle_booking_start,
+    process_booking_message,
+)
+from handlers.callbacks import handle_callback
+from handlers.admin import (
+    handle_admin_panel,
+    handle_pending_appointments,
+    handle_manage_schedule,
+    handle_manage_patients,
+)
+
+from utils.state_manager import state_manager
+from utils.keyboards import clinic_info_keyboard
+from utils.helpers import send_welcome_message
+from utils.logger import logger
+
+# =========================================================
+# Database Initialization
+# =========================================================
+run_migrations()
+seed(create_test_slots=True)
+
+# =========================================================
+# Bot
+# =========================================================
+bot = Bot(token=BALE_TOKEN)
+
+# =========================================================
+# Clinic Information
+# =========================================================
+async def handle_clinic_info(message):
+    await message.reply(
+        "ðŸ¥ Ø¯Ø±Ù…Ø§Ù†Ú¯Ø§Ù‡ Ø·Ø¨ Ø³Ù†ØªÛŒ Ø¯Ú©ØªØ± ÙˆÙ„ÛŒâ€ŒØ§Ù„Ù„Ù‡ Ú¯Ø±Ø§ÛŒÙ„ÛŒ Ù…Ù„Ú©\n\n"
+        "ðŸ“ Ø¢Ø¯Ø±Ø³: ØªÙ‡Ø±Ø§Ù†ØŒ Ø¨Ø²Ø±Ú¯Ø±Ø§Ù‡ Ø§Ø´Ø±ÙÛŒ Ø§ØµÙÙ‡Ø§Ù†ÛŒØŒ Ø¨Ø§Ù„Ø§ØªØ± Ø§Ø² Ø³Ù‡ Ø±Ø§Ù‡ Ù…Ø±Ø²Ø¯Ø§Ø±Ø§Ù†ØŒ Ú©ÙˆÚ†Ù‡ Ø´Ù‡ÛŒØ¯ Ù…Ø§Ø´Ø§Ø§Ù„Ù„Ù‡ Ø±Ø¯Ø§ÛŒÛŒØŒ Ø·Ø¨Ù‚Ù‡ Ø¯ÙˆÙ… Ù…Ø³Ø¬Ø¯ Ø­Ø¶Ø±Øª Ø§Ø¨ÙˆØ§Ù„ÙØ¶Ù„ (Ø¯Ø§Ø±Ø§Ù„Ø´ÙØ§ÛŒ Ø­Ø¶Ø±Øª Ø§Ø¨ÙˆØ§Ù„ÙØ¶Ù„)\n\n"
+        "ðŸ“ž ØªÙ„ÙÙ†â€ŒÙ‡Ø§ÛŒ ØªÙ…Ø§Ø³:\n"
+        "1ï¸âƒ£ 02146292250\n"
+        "2ï¸âƒ£ 02144386143\n\n"
+        "ðŸ•’ ØªØ§ÛŒÙ… Ú©Ø§Ø±ÛŒ: Ù‡Ù…Ù‡â€ŒØ±ÙˆØ²Ù‡ Ø¨Ù‡ Ø¬Ø² Ø¬Ù…Ø¹Ù‡â€ŒÙ‡Ø§",
+        components=clinic_info_keyboard(),
+    )
+
+# =========================================================
+# Ready
+# =========================================================
+@bot.event
+async def on_ready():
+    logger.info("Bale connection established successfully.")
+    if bot.user:
+        logger.info("Bot identity verified: @%s", bot.user.username)
+
+# =========================================================
+# Message
+# =========================================================
+@bot.event
+async def on_message(message):
+    if not message.text:
+        return
+
+    text = message.text.strip()
+    user_id = message.author.id
+
+    # =====================================================
+    # Commands & Menu Triggers
+    # =====================================================
+    if text == "/start":
+        await handle_start(message)
+        return
+
+    if text in ("/register", "ðŸ“ Ø«Ø¨Øª Ø§Ø·Ù„Ø§Ø¹Ø§Øª"):
+        await handle_patient_registration(message)
+        return
+
+    if text == "/patient":
+        await handle_patient_lookup(message)
+        return
+
+    if text == "/appointments":
+        await handle_my_appointments(message)
+        return
+
+    if text == "/cancel":
+        await handle_cancel_appointment(message)
+        return
+
+    if text == "/book":
+        await handle_booking_start(message)
+        return
+
+    # =====================================================
+    # Main Menu
+    # =====================================================
+    if text == "ðŸ“… Ø¯Ø±ÛŒØ§ÙØª Ù†ÙˆØ¨Øª":
+        await handle_booking_start(message)
+        return
+
+    if text == "ðŸ“‹ Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§ÛŒ Ù…Ù†":
+        await handle_my_appointments(message)
+        return
+
+    if text == "ðŸ‘¤ Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø¨ÛŒÙ…Ø§Ø±":
+        await handle_patient_lookup(message)
+        return
+
+    if text == "ðŸ¥ Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø¯Ø±Ù…Ø§Ù†Ú¯Ø§Ù‡":
+        await handle_clinic_info(message)
+        return
+
+    # =====================================================
+    # Patient Submenu
+    # =====================================================
+    if text in ("âœï¸ ÙˆÛŒØ±Ø§ÛŒØ´ Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø¨ÛŒÙ…Ø§Ø±", "ÙˆÛŒØ±Ø§ÛŒØ´ Ø§Ø·Ù„Ø§Ø¹Ø§Øª"):
+        await handle_patient_edit(message)
+        return
+
+    if text in ("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ù…Ù†ÙˆÛŒ Ø§ØµÙ„ÛŒ", "Ù„ØºÙˆ"):
+        state_manager.clear_state(user_id)
+        await send_welcome_message(message, user_id)
+        return
+
+    # =====================================================
+    # Admin
+    # =====================================================
+    if text == "/admin":
+        await handle_admin_panel(message)
+        return
+
+    if text == "/pending":
+        await handle_pending_appointments(message)
+        return
+
+    if text == "/schedule":
+        await handle_manage_schedule(message)
+        return
+
+    if text == "/patients":
+        await handle_manage_patients(message)
+        return
+
+    # =====================================================
+    # State Handling
+    # =====================================================
+    state = state_manager.get_state(user_id)
+    if state is None:
+        return
+
+    # -----------------------------------------------------
+    # Booking
+    # -----------------------------------------------------
+    handled = await process_booking_message(message)
+    if handled:
+        return
+
+    # -----------------------------------------------------
+    # Cancel Appointment
+    # -----------------------------------------------------
+    handled = await process_cancel_appointment(message)
+    if handled:
+        return
+
+    # -----------------------------------------------------
+    # Patient Registration / Edit
+    # -----------------------------------------------------
+    handled = await process_registration_message(message)
+    if handled:
+        return
+
+# =========================================================
+# Callback
+# =========================================================
+@bot.event
+async def on_callback(query):
+    await handle_callback(query)
+
+# =========================================================
+# Run
+# =========================================================
+def main():
+    logger.info("Starting ClinicBot...")
+    bot.run()
+
+if __name__ == "__main__":
+    main()
+
+
+==================================================
+FILE: main.py
+==================================================
+from bot import main
+
+if __name__ == "__main__":
+    main()
+
+
+==================================================
+FILE: api\crud.py
+==================================================
+import sqlite3
+import os
+from typing import List, Dict, Any, Optional
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DB_PATH = os.path.join(BASE_DIR, "data", "clinic_database.db")
+
+# Ù¾Ú† Ø®ÙˆØ¯Ú©Ø§Ø± Ø¯ÛŒØªØ§Ø¨ÛŒØ³ Ø¨Ø±Ø§ÛŒ Ø§Ø¶Ø§ÙÙ‡ Ú©Ø±Ø¯Ù† Ø³ØªÙˆÙ†â€ŒÙ‡Ø§ÛŒ Ø¬Ø¯ÛŒØ¯ Ø¨Ø¯ÙˆÙ† Ù¾Ø§Ú© Ø´Ø¯Ù† Ø¯ÛŒØªØ§ÛŒ Ù‚Ø¨Ù„ÛŒ
+def _apply_patches():
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        try:
+            cursor.execute("ALTER TABLE appointments ADD COLUMN source VARCHAR(50) DEFAULT 'bot'")
+        except sqlite3.OperationalError:
+            pass
+_apply_patches()
+
+def get_dict_cursor(conn):
+    conn.row_factory = sqlite3.Row
+    return conn.cursor()
+
+def get_dashboard_stats() -> Dict[str, Any]:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = get_dict_cursor(conn)
+        
+        cursor.execute("SELECT COUNT(*) as total FROM patients")
+        patients_count = cursor.fetchone()["total"]
+        
+        cursor.execute("SELECT COUNT(*) as total FROM appointments WHERE status IN ('scheduled', 'accepted')")
+        active_appointments = cursor.fetchone()["total"]
+        
+        cursor.execute("SELECT COUNT(*) as total FROM appointments WHERE status = 'cancelled'")
+        cancelled_appointments = cursor.fetchone()["total"]
+        
+        cursor.execute("SELECT COUNT(*) as total FROM services WHERE is_active = 1")
+        active_services = cursor.fetchone()["total"]
+        
+        return {
+            "total_patients": patients_count,
+            "active_appointments": active_appointments,
+            "cancelled_appointments": cancelled_appointments,
+            "active_services": active_services
+        }
+
+def get_all_patients() -> List[Dict[str, Any]]:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = get_dict_cursor(conn)
+        cursor.execute("SELECT * FROM patients ORDER BY id DESC")
+        return [dict(row) for row in cursor.fetchall()]
+
+def get_patient_by_national_id(national_id: str) -> Optional[Dict[str, Any]]:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = get_dict_cursor(conn)
+        cursor.execute("SELECT * FROM patients WHERE national_id = ?", (national_id,))
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+def create_patient_by_staff(first_name: str, last_name: str, national_id: str, phone_number: str, gender: str = "male", insurance: str = "none") -> int:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO patients (first_name, last_name, national_id, phone_number, gender, insurance) VALUES (?, ?, ?, ?, ?, ?)",
+            (first_name, last_name, national_id, phone_number, gender, insurance)
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+def update_patient_info(patient_id: int, first_name: str, last_name: str, phone_number: str, gender: str) -> bool:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE patients SET first_name = ?, last_name = ?, phone_number = ?, gender = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (first_name, last_name, phone_number, gender, patient_id)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+def get_all_appointments() -> List[Dict[str, Any]]:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = get_dict_cursor(conn)
+        query = """
+            SELECT a.*, p.first_name, p.last_name, p.national_id, p.phone_number, p.user_id, s.name as service_name
+            FROM appointments a
+            LEFT JOIN patients p ON a.patient_id = p.id
+            LEFT JOIN services s ON a.service_id = s.id
+            ORDER BY a.appointment_date DESC, a.start_time ASC
+        """
+        cursor.execute(query)
+        return [dict(row) for row in cursor.fetchall()]
+
+def update_appointment_status(appointment_id: int, status: str) -> bool:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "UPDATE appointments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (status, appointment_id)
+        )
+        conn.commit()
+        return cursor.rowcount > 0
+
+def create_appointment_by_staff(patient_id: int, service_id: int, appointment_date: str, start_time: str, gender: str = "all", source: str = "panel") -> int:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO appointments (patient_id, service_id, appointment_date, start_time, end_time, gender, status, source) VALUES (?, ?, ?, ?, ?, ?, 'scheduled', ?)",
+            (patient_id, service_id, appointment_date, start_time, "00:00", gender, source)
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+def add_service(name: str, price: int = 0) -> int:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO services (name, price, is_active) VALUES (?, ?, 1)", (name, price))
+        conn.commit()
+        return cursor.lastrowid
+
+def toggle_service_status(service_id: int, is_active: int) -> bool:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE services SET is_active = ? WHERE id = ?", (is_active, service_id))
+        conn.commit()
+        return cursor.rowcount > 0
+
+
+==================================================
+FILE: api\main.py
+==================================================
+from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import List, Dict, Any, Optional
+import os
+import sqlite3
+from database.repository import repository
+from database.migrations import run_migrations
+from api import crud
+
+run_migrations()
+
+app = FastAPI(
+    title="Clinic Dashboard API",
+    version="2.7.0"
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+class StatusUpdate(BaseModel):
+    status: str
+
+class SettingUpdate(BaseModel):
+    key: str
+    value: str
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class CreatePatientRequest(BaseModel):
+    first_name: str
+    last_name: str
+    national_id: str
+    phone_number: str
+    gender: str = "male"
+    insurance: str = "none"
+
+class UpdatePatientRequest(BaseModel):
+    first_name: str
+    last_name: str
+    phone_number: str
+    gender: str = "male"
+
+class DeskBookRequest(BaseModel):
+    national_id: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    patient_gender: Optional[str] = "male"
+    service_id: int
+    appointment_date: str
+    start_time: str
+    gender: str = "all"
+
+class AppointmentCreateRequest(BaseModel):
+    patient_id: int
+    service_id: int
+    appointment_date: str
+    start_time: str
+    gender: str = "all"
+
+class ServiceCreateRequest(BaseModel):
+    name: str
+    price: int = 0
+
+@app.get("/")
+def health_check() -> dict:
+    return {"status": "success", "message": "Ø§ÛŒâ€ŒÙ¾ÛŒâ€ŒØ¢ÛŒ Ú©Ù„ÛŒÙ†ÛŒÚ© ÙØ¹Ø§Ù„ Ø§Ø³Øª"}
+
+@app.post("/api/login")
+def login(data: LoginRequest) -> dict:
+    admin_user = os.getenv("ADMIN_USERNAME", "admin")
+    admin_pass = os.getenv("ADMIN_PASSWORD", "admin123")
+    sec_user = os.getenv("SECRETARY_USERNAME", "secretary")
+    sec_pass = os.getenv("SECRETARY_PASSWORD", "sec123")
+    
+    if data.username == admin_user and data.password == admin_pass:
+        return {"success": True, "token": "clinic_secure_token_admin", "role": "admin", "name": "Ù…Ø¯ÛŒØ± Ø³ÛŒØ³ØªÙ…"}
+    elif data.username == sec_user and data.password == sec_pass:
+        return {"success": True, "token": "clinic_secure_token_secretary", "role": "secretary", "name": "Ù…Ù†Ø´ÛŒ Ù…Ø·Ø¨"}
+        
+    raise HTTPException(status_code=401, detail="Ù†Ø§Ù… Ú©Ø§Ø±Ø¨Ø±ÛŒ ÛŒØ§ Ø±Ù…Ø² Ø¹Ø¨ÙˆØ± Ø§Ø´ØªØ¨Ø§Ù‡ Ø§Ø³Øª")
+
+@app.post("/api/desk/book")
+def desk_book(payload: DeskBookRequest) -> dict:
+    try:
+        patient = crud.get_patient_by_national_id(payload.national_id)
+        if not patient:
+            if not payload.first_name or not payload.phone_number:
+                raise HTTPException(status_code=400, detail="Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø¨ÛŒÙ…Ø§Ø± Ø¨Ø±Ø§ÛŒ Ø«Ø¨Øª Ø¬Ø¯ÛŒØ¯ Ù†Ø§Ù‚Øµ Ø§Ø³Øª.")
+            try:
+                patient_id = crud.create_patient_by_staff(
+                    payload.first_name, payload.last_name, payload.national_id, payload.phone_number, payload.patient_gender
+                )
+            except sqlite3.IntegrityError:
+                raise HTTPException(status_code=400, detail="Ø§ÛŒÙ† Ú©Ø¯ Ù…Ù„ÛŒ ÛŒØ§ Ø´Ù…Ø§Ø±Ù‡ ØªÙ…Ø§Ø³ Ù‚Ø¨Ù„Ø§Ù‹ Ø¯Ø± Ø³ÛŒØ³ØªÙ… Ø«Ø¨Øª Ø´Ø¯Ù‡ Ø§Ø³Øª.")
+        else:
+            patient_id = patient["id"]
+
+        appt_id = crud.create_appointment_by_staff(
+            patient_id, payload.service_id, payload.appointment_date, payload.start_time, payload.gender, source="panel"
+        )
+        return {"success": True, "appointment_id": appt_id}
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception:
+        raise HTTPException(status_code=500, detail="Ø®Ø·Ø§ÛŒ Ø³Ø±ÙˆØ± Ø¯Ø± Ø«Ø¨Øª Ø§Ø·Ù„Ø§Ø¹Ø§Øª.")
+
+@app.get("/api/services")
+def get_all_services() -> List[Dict[str, Any]]:
+    try:
+        return repository.get_services()
+    except Exception:
+        raise HTTPException(status_code=500, detail="Ø®Ø·Ø§ Ø¯Ø± Ø¯Ø±ÛŒØ§ÙØª Ù„ÛŒØ³Øª Ø®Ø¯Ù…Ø§Øª.")
+
+@app.post("/api/services")
+def create_service(payload: ServiceCreateRequest) -> dict:
+    try:
+        service_id = crud.add_service(payload.name, payload.price)
+        return {"success": True, "service_id": service_id}
+    except Exception:
+        raise HTTPException(status_code=500, detail="Ø®Ø·Ø§ Ø¯Ø± Ø§ÛŒØ¬Ø§Ø¯ Ø®Ø¯Ù…Øª Ø¬Ø¯ÛŒØ¯.")
+
+@app.get("/api/dashboard/stats")
+def get_stats() -> dict:
+    try:
+        return crud.get_dashboard_stats()
+    except Exception:
+        raise HTTPException(status_code=500, detail="Ø®Ø·Ø§ Ø¯Ø± Ø¯Ø±ÛŒØ§ÙØª Ø¢Ù…Ø§Ø± Ø¯Ø§Ø´Ø¨ÙˆØ±Ø¯.")
+
+@app.get("/api/patients")
+def get_patients() -> List[Dict[str, Any]]:
+    try:
+        return crud.get_all_patients()
+    except Exception:
+        raise HTTPException(status_code=500, detail="Ø®Ø·Ø§ Ø¯Ø± Ø¯Ø±ÛŒØ§ÙØª Ù„ÛŒØ³Øª Ø¨ÛŒÙ…Ø§Ø±Ø§Ù†.")
+
+@app.get("/api/patients/search/{national_id}")
+def search_patient(national_id: str) -> dict:
+    patient = crud.get_patient_by_national_id(national_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Ø¨ÛŒÙ…Ø§Ø± ÛŒØ§ÙØª Ù†Ø´Ø¯.")
+    return patient
+
+@app.put("/api/patients/{patient_id}")
+def update_patient(patient_id: int, payload: UpdatePatientRequest) -> dict:
+    try:
+        success = crud.update_patient_info(patient_id, payload.first_name, payload.last_name, payload.phone_number, payload.gender)
+        if not success:
+            raise HTTPException(status_code=404, detail="Ø¨ÛŒÙ…Ø§Ø± Ù…ÙˆØ±Ø¯ Ù†Ø¸Ø± ÛŒØ§ÙØª Ù†Ø´Ø¯.")
+        return {"success": True, "message": "Ø¨Ø±ÙˆØ²Ø±Ø³Ø§Ù†ÛŒ Ø¨Ø§ Ù…ÙˆÙÙ‚ÛŒØª Ø§Ù†Ø¬Ø§Ù… Ø´Ø¯."}
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="Ø´Ù…Ø§Ø±Ù‡ ØªÙ…Ø§Ø³ ÙˆØ§Ø±Ø¯ Ø´Ø¯Ù‡ ØªÚ©Ø±Ø§Ø±ÛŒ Ø§Ø³Øª.")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Ø®Ø·Ø§ Ø¯Ø± Ø¨Ø±ÙˆØ²Ø±Ø³Ø§Ù†ÛŒ Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø¨ÛŒÙ…Ø§Ø±.")
+
+@app.post("/api/patients")
+def create_patient(payload: CreatePatientRequest) -> dict:
+    try:
+        patient_id = crud.create_patient_by_staff(
+            payload.first_name, payload.last_name, payload.national_id,
+            payload.phone_number, payload.gender, payload.insurance
+        )
+        return {"success": True, "patient_id": patient_id}
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=400, detail="Ø§ÛŒÙ† Ú©Ø¯ Ù…Ù„ÛŒ ÛŒØ§ Ø´Ù…Ø§Ø±Ù‡ ØªÙ…Ø§Ø³ Ù‚Ø¨Ù„Ø§Ù‹ Ø¯Ø± Ø³ÛŒØ³ØªÙ… Ø«Ø¨Øª Ø´Ø¯Ù‡ Ø§Ø³Øª.")
+    except Exception:
+        raise HTTPException(status_code=500, detail="Ø®Ø·Ø§ Ø¯Ø± Ø«Ø¨Øª Ø¨ÛŒÙ…Ø§Ø± Ø¬Ø¯ÛŒØ¯.")
+
+@app.get("/api/appointments")
+def get_appointments() -> List[Dict[str, Any]]:
+    try:
+        return crud.get_all_appointments()
+    except Exception:
+        raise HTTPException(status_code=500, detail="Ø®Ø·Ø§ Ø¯Ø± Ø¯Ø±ÛŒØ§ÙØª Ù„ÛŒØ³Øª Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§.")
+
+@app.post("/api/appointments")
+def create_appointment(payload: AppointmentCreateRequest) -> dict:
+    try:
+        appt_id = crud.create_appointment_by_staff(
+            payload.patient_id, payload.service_id, payload.appointment_date, payload.start_time, payload.gender, source="bot"
+        )
+        return {"success": True, "appointment_id": appt_id}
+    except Exception:
+        raise HTTPException(status_code=500, detail="Ø®Ø·Ø§ Ø¯Ø± Ø§ÛŒØ¬Ø§Ø¯ Ù†ÙˆØ¨Øª Ø¬Ø¯ÛŒØ¯.")
+
+@app.put("/api/appointments/{appointment_id}/status")
+def update_status(appointment_id: int, payload: StatusUpdate) -> dict:
+    try:
+        success = crud.update_appointment_status(appointment_id, payload.status)
+        if not success:
+            raise HTTPException(status_code=404, detail="Ù†ÙˆØ¨Øª ÛŒØ§ÙØª Ù†Ø´Ø¯.")
+        return {"success": True, "message": "ÙˆØ¶Ø¹ÛŒØª Ø¨Ø§ Ù…ÙˆÙÙ‚ÛŒØª ØªØºÛŒÛŒØ± Ú©Ø±Ø¯."}
+    except Exception:
+        raise HTTPException(status_code=500, detail="Ø®Ø·Ø§ Ø¯Ø± ØªØºÛŒÛŒØ± ÙˆØ¶Ø¹ÛŒØª Ù†ÙˆØ¨Øª.")
+
+@app.get("/api/settings")
+def get_settings() -> dict:
+    try:
+        return {
+            "clinic_name": repository.get_setting("clinic_name", ""),
+            "clinic_phone": repository.get_setting("clinic_phone", ""),
+            "clinic_address": repository.get_setting("clinic_address", ""),
+            "working_hours": repository.get_setting("working_hours", "")
+        }
+    except Exception:
+        raise HTTPException(status_code=500, detail="Ø®Ø·Ø§ Ø¯Ø± Ø¯Ø±ÛŒØ§ÙØª ØªÙ†Ø¸ÛŒÙ…Ø§Øª.")
+
+@app.post("/api/settings")
+def update_setting(payload: SettingUpdate) -> dict:
+    try:
+        repository.set_setting(payload.key, payload.value)
+        return {"success": True}
+    except Exception:
+        raise HTTPException(status_code=500, detail="Ø®Ø·Ø§ Ø¯Ø± Ø°Ø®ÛŒØ±Ù‡ ØªÙ†Ø¸ÛŒÙ…Ø§Øª.")
+
+
+==================================================
+FILE: config\config.py
+==================================================
+# config/config.py
+
+import os
+
+from dotenv import load_dotenv
+
+
+load_dotenv()
+
+
+BALE_TOKEN = os.getenv(
+    "BALE_TOKEN"
+)
+
+
+if not BALE_TOKEN:
+    raise RuntimeError(
+        "BALE_TOKEN is not configured"
+    )
+
+
+==================================================
+FILE: database\connection.py
+==================================================
+# database/connection.py
+
+import sqlite3
+from pathlib import Path
+
+
+BASE_DIR = Path(
+    __file__
+).resolve().parent.parent
+
+DATABASE_PATH = (
+    BASE_DIR
+    / "data"
+    / "clinic_database.db"
+)
+
+
+def get_connection() -> sqlite3.Connection:
+
+    DATABASE_PATH.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    connection = sqlite3.connect(
+        DATABASE_PATH,
+        timeout=30,
+        check_same_thread=False,
+    )
+
+    connection.row_factory = sqlite3.Row
+
+    connection.execute(
+        "PRAGMA foreign_keys = ON"
+    )
+
+    connection.execute(
+        "PRAGMA busy_timeout = 30000"
+    )
+
+    connection.execute(
+        "PRAGMA journal_mode = WAL"
+    )
+
+    return connection
+
+
+def execute_query(
+    query: str,
+    parameters: tuple = (),
+):
+
+    with get_connection() as connection:
+
+        cursor = connection.execute(
+            query,
+            parameters,
+        )
+
+        connection.commit()
+
+        return cursor
+
+
+def fetch_one(
+    query: str,
+    parameters: tuple = (),
+):
+
+    with get_connection() as connection:
+
+        cursor = connection.execute(
+            query,
+            parameters,
+        )
+
+        return cursor.fetchone()
+
+
+def fetch_all(
+    query: str,
+    parameters: tuple = (),
+):
+
+    with get_connection() as connection:
+
+        cursor = connection.execute(
+            query,
+            parameters,
+        )
+
+        return cursor.fetchall()
+
+
+==================================================
+FILE: database\migrations.py
+==================================================
+
+from database.connection import get_connection
+
+def run_migrations() -> None:
+    connection = get_connection()
+    try:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                bale_user_id INTEGER UNIQUE,
+                username TEXT UNIQUE,
+                password_hash TEXT,
+                first_name TEXT,
+                last_name TEXT,
+                phone_number TEXT,
+                role TEXT NOT NULL DEFAULT 'patient',
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS patients (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                national_id TEXT UNIQUE,
+                first_name TEXT NOT NULL,
+                last_name TEXT NOT NULL,
+                phone_number TEXT NOT NULL,
+                birth_date TEXT,
+                gender TEXT,
+                insurance TEXT,
+                address TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS user_patient_profiles (
+                user_id INTEGER NOT NULL,
+                patient_id INTEGER NOT NULL,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (user_id, patient_id),
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+                FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS services (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                price INTEGER DEFAULT 0,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS appointment_slots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                service_id INTEGER NOT NULL,
+                appointment_date TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                gender TEXT NOT NULL,
+                capacity INTEGER NOT NULL DEFAULT 1,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+                UNIQUE (service_id, appointment_date, start_time, gender)
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS appointments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                patient_id INTEGER NOT NULL,
+                service_id INTEGER NOT NULL,
+                appointment_date TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT NOT NULL,
+                gender TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'scheduled',
+                reminder_sent INTEGER NOT NULL DEFAULT 0,
+                reminder_msg_id INTEGER,
+                reason TEXT,
+                notes TEXT,
+                created_by INTEGER,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+                FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
+                FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT,
+                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER,
+                action TEXT NOT NULL,
+                entity_type TEXT,
+                entity_id INTEGER,
+                details TEXT,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+            )
+            """
+        )
+
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_users_bale_user_id ON users(bale_user_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_patients_user_id ON patients(user_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_patients_national_id ON patients(national_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_slots_lookup ON appointment_slots(service_id, appointment_date, gender)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_appointments_patient ON appointments(patient_id)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_appointments_date ON appointments(appointment_date)")
+        connection.execute("CREATE INDEX IF NOT EXISTS idx_appointments_status ON appointments(status)")
+
+        connection.commit()
+    finally:
+        connection.close()
+
+if __name__ == "__main__":
+    run_migrations()
+
+
+==================================================
+FILE: database\repository.py
+==================================================
+from typing import Any, Optional
+from database.connection import get_connection
+
+class Repository:
+    def execute(self, query: str, parameters: tuple[Any, ...] = ()) -> int:
+        with get_connection() as connection:
+            cursor = connection.execute(query, parameters)
+            connection.commit()
+            return cursor.lastrowid
+
+    def fetch_one(self, query: str, parameters: tuple[Any, ...] = ()) -> Optional[dict]:
+        with get_connection() as connection:
+            cursor = connection.execute(query, parameters)
+            row = cursor.fetchone()
+            return dict(row) if row else None
+
+    def fetch_all(self, query: str, parameters: tuple[Any, ...] = ()) -> list[dict]:
+        with get_connection() as connection:
+            cursor = connection.execute(query, parameters)
+            return [dict(row) for row in cursor.fetchall()]
+
+    def create_user(self, bale_user_id: int, username: Optional[str] = None, first_name: Optional[str] = None, last_name: Optional[str] = None, phone_number: Optional[str] = None, role: str = "patient") -> int:
+        existing = self.get_user_by_bale_id(bale_user_id)
+        if existing: return existing["id"]
+        return self.execute("INSERT INTO users (bale_user_id, username, first_name, last_name, phone_number, role) VALUES (?, ?, ?, ?, ?, ?)", (bale_user_id, username, first_name, last_name, phone_number, role))
+
+    def get_user_by_bale_id(self, bale_user_id: int) -> Optional[dict]:
+        return self.fetch_one("SELECT * FROM users WHERE bale_user_id = ?", (bale_user_id,))
+
+    def get_user_by_id(self, user_id: int) -> Optional[dict]:
+        return self.fetch_one("SELECT * FROM users WHERE id = ?", (user_id,))
+
+    def update_user_phone(self, bale_user_id: int, phone_number: str) -> None:
+        self.execute("UPDATE users SET phone_number = ?, updated_at = CURRENT_TIMESTAMP WHERE bale_user_id = ?", (phone_number, bale_user_id))
+
+    def create_patient(self, user_id: Optional[int], first_name: str, last_name: str, phone: Optional[str] = None, phone_number: Optional[str] = None, national_id: Optional[str] = None, birth_date: Optional[str] = None, gender: Optional[str] = None, insurance: Optional[str] = None, address: Optional[str] = None) -> int:
+        final_phone = phone_number if phone_number is not None else phone
+        if not final_phone: raise ValueError("Patient phone number is required.")
+        existing = None
+        if national_id: existing = self.get_patient_by_national_id(national_id)
+        if existing: 
+            # Ø¯Ø± ØµÙˆØ±ØªÛŒ Ú©Ù‡ Ø¨ÛŒÙ…Ø§Ø± ÙˆØ¬ÙˆØ¯ Ø¯Ø§Ø±Ø¯ Ø§Ù…Ø§ Ø¨Ù‡ Ø§ÛŒÙ† ÛŒÙˆØ²Ø± Ù…ØªØµÙ„ Ù†ÛŒØ³ØªØŒ Ù…ØªØµÙ„Ø´ Ú©Ù†
+            if user_id is not None: self.add_patient_profile(user_id, existing["id"])
+            return existing["id"]
+        patient_id = self.execute("INSERT INTO patients (user_id, national_id, first_name, last_name, phone_number, birth_date, gender, insurance, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (user_id, national_id, first_name, last_name, final_phone, birth_date, gender, insurance, address))
+        if user_id is not None: self.add_patient_profile(user_id, patient_id)
+        return patient_id
+
+    def get_patient(self, patient_id: int) -> Optional[dict]:
+        return self.get_patient_by_id(patient_id)
+
+    def get_patient_by_id(self, patient_id: int) -> Optional[dict]:
+        return self.fetch_one("SELECT * FROM patients WHERE id = ?", (patient_id,))
+
+    def get_patient_by_user_id(self, user_id: int) -> Optional[dict]:
+        return self.fetch_one("SELECT * FROM patients WHERE user_id = ? ORDER BY id LIMIT 1", (user_id,))
+
+    def get_patient_by_national_id(self, national_id: str) -> Optional[dict]:
+        return self.fetch_one("SELECT * FROM patients WHERE national_id = ?", (national_id,))
+
+    def get_all_patients(self) -> list[dict]:
+        return self.fetch_all("SELECT * FROM patients ORDER BY first_name, last_name")
+
+    def update_patient(self, patient_id: int, fields: Optional[dict] = None, **kwargs) -> bool:
+        if fields is None: fields = {}
+        fields = {**fields, **kwargs}
+        allowed = {"user_id", "national_id", "first_name", "last_name", "phone", "phone_number", "birth_date", "gender", "insurance", "address"}
+        values = {k: v for k, v in fields.items() if k in allowed}
+        if "phone" in values: values["phone_number"] = values.pop("phone")
+        if not values: return False
+        assignments = ", ".join(f"{k} = ?" for k in values)
+        parameters = tuple(values.values()) + (patient_id,)
+        with get_connection() as connection:
+            cursor = connection.execute(f"UPDATE patients SET {assignments}, updated_at = CURRENT_TIMESTAMP WHERE id = ?", parameters)
+            connection.commit()
+            return cursor.rowcount > 0
+
+    def add_patient_profile(self, user_id: int, patient_id: int) -> bool:
+        with get_connection() as connection:
+            connection.execute("INSERT OR IGNORE INTO user_patient_profiles (user_id, patient_id) VALUES (?, ?)", (user_id, patient_id))
+            connection.commit()
+        return True
+
+    def get_patient_profiles(self, user_id: int) -> list[dict]:
+        return self.fetch_all("SELECT p.* FROM patients p INNER JOIN user_patient_profiles upp ON upp.patient_id = p.id WHERE upp.user_id = ? ORDER BY p.id", (user_id,))
+
+    def get_patient_profile(self, user_id: int, patient_id: int) -> Optional[dict]:
+        return self.fetch_one("SELECT p.* FROM patients p INNER JOIN user_patient_profiles upp ON upp.patient_id = p.id WHERE upp.user_id = ? AND upp.patient_id = ?", (user_id, patient_id))
+
+    def create_service(self, name: str) -> int:
+        existing = self.fetch_one("SELECT id FROM services WHERE name = ?", (name,))
+        if existing: return existing["id"]
+        return self.execute("INSERT INTO services (name) VALUES (?)", (name,))
+
+    def get_service_by_id(self, service_id: int) -> Optional[dict]:
+        return self.fetch_one("SELECT * FROM services WHERE id = ? AND is_active = 1", (service_id,))
+
+    def get_services(self) -> list[dict]:
+        return self.fetch_all("SELECT * FROM services WHERE is_active = 1 ORDER BY id")
+
+    def create_slot(self, service_id: int, appointment_date: str, start_time: str, gender: str, capacity: int, end_time: Optional[str] = None) -> int:
+        existing = self.get_slot(service_id=service_id, appointment_date=appointment_date, start_time=start_time, gender=gender)
+        if existing:
+            self.execute("UPDATE appointment_slots SET capacity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (capacity, existing["id"]))
+            return existing["id"]
+        return self.execute("INSERT INTO appointment_slots (service_id, appointment_date, start_time, gender, capacity) VALUES (?, ?, ?, ?, ?)", (service_id, appointment_date, start_time, gender, capacity))
+
+    def get_slot(self, service_id: int, appointment_date: str, start_time: str, gender: str) -> Optional[dict]:
+        return self.fetch_one("SELECT * FROM appointment_slots WHERE service_id = ? AND appointment_date = ? AND start_time = ? AND gender = ?", (service_id, appointment_date, start_time, gender))
+
+    def get_available_times(self, service_id: int, appointment_date: str, gender: str) -> list[dict]:
+        return self.fetch_all(
+            """SELECT s.*, sv.name AS service_name, 
+               (SELECT COUNT(*) FROM appointments a WHERE a.service_id = s.service_id AND a.appointment_date = s.appointment_date AND a.start_time = s.start_time AND a.status = 'scheduled' AND (s.gender = 'all' OR a.gender = s.gender)) AS booked_count 
+               FROM appointment_slots s INNER JOIN services sv ON sv.id = s.service_id 
+               WHERE s.service_id = ? AND s.appointment_date = ? AND s.gender = ? ORDER BY s.start_time""",
+            (service_id, appointment_date, gender)
+        )
+
+    def create_appointment_if_available(self, patient_id: int, service_id: int, appointment_date: str, start_time: str, end_time: str, gender: str, status: str = "scheduled", reason: Optional[str] = None, notes: Optional[str] = None, created_by: Optional[int] = None) -> Optional[int]:
+        connection = get_connection()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            
+            slot = connection.execute("SELECT id, capacity, gender FROM appointment_slots WHERE service_id = ? AND appointment_date = ? AND start_time = ? AND (gender = ? OR gender = 'all')", (service_id, appointment_date, start_time, gender)).fetchone()
+            if slot is None:
+                connection.rollback()
+                return None
+
+            if slot["gender"] == "all":
+                booked = connection.execute("SELECT COUNT(*) AS count FROM appointments WHERE service_id = ? AND appointment_date = ? AND start_time = ? AND status = 'scheduled'", (service_id, appointment_date, start_time)).fetchone()["count"]
+            else:
+                booked = connection.execute("SELECT COUNT(*) AS count FROM appointments WHERE service_id = ? AND appointment_date = ? AND start_time = ? AND gender = ? AND status = 'scheduled'", (service_id, appointment_date, start_time, gender)).fetchone()["count"]
+            
+            if booked >= slot["capacity"]:
+                connection.rollback()
+                return None
+
+            active_existing = connection.execute("SELECT id FROM appointments WHERE patient_id = ? AND service_id = ? AND status = 'scheduled'", (patient_id, service_id)).fetchone()
+            if active_existing:
+                connection.rollback()
+                raise ValueError("active_appointment_exists")
+
+            cursor = connection.execute("INSERT INTO appointments (patient_id, service_id, appointment_date, start_time, end_time, gender, status, reason, notes, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)", (patient_id, service_id, appointment_date, start_time, end_time, gender, status, reason, notes, created_by))
+            connection.commit()
+            return cursor.lastrowid
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def get_appointment_by_id(self, appointment_id: int) -> Optional[dict]:
+        return self.fetch_one("SELECT a.*, s.name AS service_name, p.first_name AS patient_first_name, p.last_name AS patient_last_name, p.phone_number AS patient_phone, p.national_id AS patient_national_id FROM appointments a INNER JOIN services s ON s.id = a.service_id INNER JOIN patients p ON p.id = a.patient_id WHERE a.id = ?", (appointment_id,))
+
+    def get_current_appointments_for_user(self, user_id: int) -> list[dict]:
+        return self.fetch_all("SELECT a.*, s.name AS service_name, p.first_name AS patient_first_name, p.last_name AS patient_last_name, p.phone_number AS patient_phone, p.national_id AS patient_national_id FROM appointments a INNER JOIN services s ON s.id = a.service_id INNER JOIN patients p ON p.id = a.patient_id INNER JOIN user_patient_profiles upp ON upp.patient_id = p.id WHERE upp.user_id = ? AND a.status = 'scheduled' ORDER BY a.appointment_date, a.start_time", (user_id,))
+
+    def get_appointment_history_for_user(self, user_id: int) -> list[dict]:
+        return self.fetch_all("SELECT a.*, s.name AS service_name, p.first_name AS patient_first_name, p.last_name AS patient_last_name, p.phone_number AS patient_phone, p.national_id AS patient_national_id FROM appointments a INNER JOIN services s ON s.id = a.service_id INNER JOIN patients p ON p.id = a.patient_id INNER JOIN user_patient_profiles upp ON upp.patient_id = p.id WHERE upp.user_id = ? AND a.status != 'scheduled' ORDER BY a.appointment_date DESC, a.start_time DESC", (user_id,))
+
+    def update_appointment_status(self, appointment_id: int, status: str) -> bool:
+        with get_connection() as connection:
+            cursor = connection.execute("UPDATE appointments SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?", (status, appointment_id))
+            connection.commit()
+            return cursor.rowcount > 0
+
+    def cancel_appointment(self, appointment_id: int) -> bool:
+        return self.update_appointment_status(appointment_id, "cancelled")
+
+    def get_user_appointment(self, user_id: int, appointment_id: int) -> Optional[dict]:
+        return self.fetch_one("SELECT a.*, s.name AS service_name, p.first_name AS patient_first_name, p.last_name AS patient_last_name, p.phone_number AS patient_phone, p.national_id AS patient_national_id FROM appointments a INNER JOIN services s ON s.id = a.service_id INNER JOIN patients p ON p.id = a.patient_id INNER JOIN user_patient_profiles upp ON upp.patient_id = p.id WHERE upp.user_id = ? AND a.id = ?", (user_id, appointment_id))
+
+    def get_setting(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        row = self.fetch_one("SELECT value FROM settings WHERE key = ?", (key,))
+        if row is None: return default
+        return row["value"]
+
+    def set_setting(self, key: str, value: str) -> None:
+        self.execute("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP", (key, value))
+
+repository = Repository()
+
+
+==================================================
+FILE: database\seed.py
+==================================================
+from datetime import date, timedelta
+from database.repository import repository
+
+DEFAULT_SETTINGS = {
+    "clinic_name": "Ø¯Ø±Ù…Ø§Ù†Ú¯Ø§Ù‡ Ø·Ø¨ Ø³Ù†ØªÛŒ Ø¯Ú©ØªØ± ÙˆÙ„ÛŒâ€ŒØ§Ù„Ù„Ù‡ Ú¯Ø±Ø§ÛŒÙ„ÛŒ Ù…Ù„Ú©",
+    "clinic_phone": "02146292250 ÛŒØ§ 02144386143",
+    "clinic_address": "ØªÙ‡Ø±Ø§Ù†ØŒ Ø¨Ø²Ø±Ú¯Ø±Ø§Ù‡ Ø§Ø´Ø±ÙÛŒ Ø§ØµÙÙ‡Ø§Ù†ÛŒØŒ Ø¨Ø§Ù„Ø§ØªØ± Ø§Ø² Ø³Ù‡ Ø±Ø§Ù‡ Ù…Ø±Ø²Ø¯Ø§Ø±Ø§Ù†ØŒ Ú©ÙˆÚ†Ù‡ Ø´Ù‡ÛŒØ¯ Ù…Ø§Ø´Ø§Ø§Ù„Ù„Ù‡ Ø±Ø¯Ø§ÛŒÛŒØŒ Ø·Ø¨Ù‚Ù‡ Ø¯ÙˆÙ… Ù…Ø³Ø¬Ø¯ Ø­Ø¶Ø±Øª Ø§Ø¨ÙˆØ§Ù„ÙØ¶Ù„ (Ø¯Ø§Ø±Ø§Ù„Ø´ÙØ§ÛŒ Ø­Ø¶Ø±Øª Ø§Ø¨ÙˆØ§Ù„ÙØ¶Ù„)",
+    "working_days": "Saturday,Sunday,Monday,Tuesday,Wednesday,Thursday",
+    "working_hours": "Ù‡Ù…Ù‡â€ŒØ±ÙˆØ²Ù‡ Ø¨Ù‡ Ø¬Ø² Ø¬Ù…Ø¹Ù‡â€ŒÙ‡Ø§",
+    "timezone": "Asia/Tehran",
+    "appointment_duration": "30",
+}
+
+REQUIRED_SERVICES = [
+    "ÙˆÛŒØ²ÛŒØª Ø¯Ú©ØªØ± Ú¯Ø±Ø§ÛŒÙ„ÛŒ",
+    "ØºÙ…Ø² Ùˆ Ø±Ú¯ Ú¯ÛŒØ±ÛŒ",
+    "Ø·Ø¨ Ø³ÙˆØ²Ù†ÛŒ",
+    "ÙØµØ¯",
+    "Ø§Ø³Ú©Ù† Ú©Ù„ Ø¨Ø¯Ù†",
+    "Ø³Ù… Ø²Ø¯Ø§ÛŒÛŒ",
+    "Ø§Ù…Ø¨Ø¯ÛŒÙ†Ú¯(Ù„Ø§ØºØ±ÛŒ)",
+    "Ø¨Ø§Ø¯Ú©Ø´",
+    "Ø­Ø¬Ø§Ù…Øª Ø¹Ø§Ù…",
+    "Ø²Ø§Ù„ÙˆØ¯Ø±Ù…Ø§Ù†ÛŒ",
+]
+
+TEST_TIMES = ["14:00", "15:00", "16:00", "17:00"]
+WORKING_WEEKDAYS = {5, 6, 0, 1, 2, 3}
+
+def seed_settings():
+    for key, value in DEFAULT_SETTINGS.items():
+        if repository.get_setting(key) is None:
+            repository.set_setting(key, value)
+
+def seed_services():
+    services = repository.get_services()
+    by_name = {item["name"]: item for item in services}
+
+    old_service = by_name.get("Ø®Ø¯Ù…Øª Ø¹Ù…ÙˆÙ…ÛŒ")
+    if old_service and "ÙˆÛŒØ²ÛŒØª Ø¯Ú©ØªØ± Ú¯Ø±Ø§ÛŒÙ„ÛŒ" not in by_name:
+        repository.update_service(old_service["id"], "ÙˆÛŒØ²ÛŒØª Ø¯Ú©ØªØ± Ú¯Ø±Ø§ÛŒÙ„ÛŒ", 1)
+        by_name["ÙˆÛŒØ²ÛŒØª Ø¯Ú©ØªØ± Ú¯Ø±Ø§ÛŒÙ„ÛŒ"] = {**old_service, "name": "ÙˆÛŒØ²ÛŒØª Ø¯Ú©ØªØ± Ú¯Ø±Ø§ÛŒÙ„ÛŒ"}
+
+    for service_name in REQUIRED_SERVICES:
+        if service_name in by_name: continue
+        service_id = repository.create_service(service_name)
+        by_name[service_name] = {"id": service_id, "name": service_name}
+
+def seed_test_slots_for_all_services(days=31):
+    services = repository.get_services()
+    today = date.today()
+    
+    for service in services:
+        is_gendered = service["name"] in ["Ø¨Ø§Ø¯Ú©Ø´", "Ø­Ø¬Ø§Ù…Øª Ø¹Ø§Ù…", "Ø²Ø§Ù„ÙˆØ¯Ø±Ù…Ø§Ù†ÛŒ"]
+        genders = ["male", "female"] if is_gendered else ["all"]
+        
+        for offset in range(days):
+            current_date = today + timedelta(days=offset)
+            if current_date.weekday() not in WORKING_WEEKDAYS: continue
+            appointment_date = current_date.isoformat()
+            
+            for gender in genders:
+                for start_time in TEST_TIMES:
+                    existing = repository.get_slot(service_id=service["id"], appointment_date=appointment_date, start_time=start_time, gender=gender)
+                    if existing: continue
+                    repository.create_slot(service_id=service["id"], appointment_date=appointment_date, start_time=start_time, gender=gender, capacity=1)
+
+def seed(create_test_slots=True):
+    seed_settings()
+    seed_services()
+    if create_test_slots:
+        seed_test_slots_for_all_services()
+
+if __name__ == "__main__":
+    seed(create_test_slots=True)
+    print("Database seed completed successfully.")
+
+
+==================================================
+FILE: database\__init__.py
+==================================================
+
+
+
+==================================================
+FILE: handlers\admin.py
+==================================================
+from bale import Message
+
+from database.repository import repository
+
+
+async def handle_admin_panel(
+    message: Message,
+) -> None:
+
+    await message.reply(
+        "Ù¾Ù†Ù„ Ù…Ø¯ÛŒØ±ÛŒØª Ø¯Ø±Ù…Ø§Ù†Ú¯Ø§Ù‡\n\n"
+        "/pending - Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§ÛŒ Ø«Ø¨Øªâ€ŒØ´Ø¯Ù‡\n"
+        "/schedule - Ù…Ø¯ÛŒØ±ÛŒØª Ø¸Ø±ÙÛŒØª Ùˆ Ø³Ø§Ø¹Ø§Øª\n"
+        "/patients - Ù…Ø¯ÛŒØ±ÛŒØª Ø¨ÛŒÙ…Ø§Ø±Ø§Ù†"
+    )
+
+
+async def handle_pending_appointments(
+    message: Message,
+) -> None:
+
+    appointments = repository.get_pending_appointments()
+
+    if not appointments:
+        await message.reply(
+            "Ø¯Ø± Ø­Ø§Ù„ Ø­Ø§Ø¶Ø± Ù†ÙˆØ¨Øª Ø«Ø¨Øªâ€ŒØ´Ø¯Ù‡â€ŒØ§ÛŒ ÙˆØ¬ÙˆØ¯ Ù†Ø¯Ø§Ø±Ø¯."
+        )
+        return
+
+    lines = [
+        "ðŸ“‹ Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§ÛŒ Ø«Ø¨Øªâ€ŒØ´Ø¯Ù‡:\n"
+    ]
+
+    for appointment in appointments:
+
+        gender = (
+            "Ø¢Ù‚Ø§"
+            if appointment["gender"] == "male"
+            else "Ø®Ø§Ù†Ù…"
+        )
+
+        lines.append(
+            f"ðŸ”¢ Ù†ÙˆØ¨Øª: {appointment['id']}\n"
+            f"ðŸ‘¤ Ø¨ÛŒÙ…Ø§Ø±: "
+            f"{appointment['patient_first_name']} "
+            f"{appointment['patient_last_name']}\n"
+            f"ðŸ¥ Ø®Ø¯Ù…Øª: {appointment['service_name']}\n"
+            f"ðŸ‘¤ Ø¬Ù†Ø³ÛŒØª: {gender}\n"
+            f"ðŸ“… ØªØ§Ø±ÛŒØ®: {appointment['appointment_date']}\n"
+            f"â° Ø³Ø§Ø¹Øª: {appointment['start_time']}\n"
+        )
+
+    await message.reply(
+        "\n".join(lines)
+    )
+
+
+async def handle_manage_schedule(
+    message: Message,
+) -> None:
+
+    await message.reply(
+        "Ù…Ø¯ÛŒØ±ÛŒØª Ø¨Ø±Ù†Ø§Ù…Ù‡ Ùˆ Ø¸Ø±ÙÛŒØª Ø§Ø² Ø·Ø±ÛŒÙ‚ Ù¾Ù†Ù„ Ù…Ø¯ÛŒØ±ÛŒØª Ø§Ù†Ø¬Ø§Ù… Ù…ÛŒâ€ŒØ´ÙˆØ¯."
+    )
+
+
+async def handle_manage_patients(
+    message: Message,
+) -> None:
+
+    patients = repository.get_all_patients()
+
+    if not patients:
+        await message.reply(
+            "Ø¨ÛŒÙ…Ø§Ø±ÛŒ Ø«Ø¨Øª Ù†Ø´Ø¯Ù‡ Ø§Ø³Øª."
+        )
+        return
+
+    lines = [
+        "ðŸ‘¥ Ø¨ÛŒÙ…Ø§Ø±Ø§Ù†:\n"
+    ]
+
+    for patient in patients:
+
+        lines.append(
+            f"ðŸ†” {patient['id']} - "
+            f"{patient['first_name']} "
+            f"{patient['last_name']}\n"
+            f"ðŸ“± {patient['phone_number']}\n"
+            f"Ú©Ø¯ Ù…Ù„ÛŒ: {patient['national_id']}\n"
+        )
+
+    await message.reply(
+        "\n".join(lines)
+    )
+
+
+==================================================
+FILE: handlers\appointments.py
+==================================================
+from datetime import date
+from bale import Message, CallbackQuery
+
+from database.repository import repository
+from utils.state_manager import state_manager
+from utils.helpers import to_date_label, send_welcome_message, get_service_display_name
+from utils.keyboards import (
+    appointments_menu_keyboard,
+    appointment_list_keyboard,
+    appointment_detail_keyboard,
+    cancel_confirmation_keyboard,
+    cancel_success_inline_keyboard,
+    main_keyboard,
+    empty_appointments_keyboard,
+)
+
+CANCEL_APPOINTMENT = "cancel_appointment"
+
+def get_tracking_code(appointment_id: int) -> str:
+    return f"CF-{appointment_id:06d}"
+
+def can_cancel_appointment(appointment) -> bool:
+    if appointment is None or appointment.get("status") != "scheduled": return False
+    try:
+        appointment_date = date.fromisoformat(appointment.get("appointment_date"))
+    except (TypeError, ValueError):
+        return False
+    return appointment_date > date.today()
+
+def appointment_status_text(status: str) -> str:
+    status_names = {"scheduled": "Ø«Ø¨Øª Ø´Ø¯Ù‡", "completed": "Ø§Ù†Ø¬Ø§Ù… Ø´Ø¯Ù‡", "cancelled": "Ù„ØºÙˆ Ø´Ø¯Ù‡", "no_show": "Ø¹Ø¯Ù… Ù…Ø±Ø§Ø¬Ø¹Ù‡"}
+    return status_names.get(status, status)
+
+def appointment_details_text(appointment) -> str:
+    service_name = get_service_display_name(appointment.get('service_name', ''), appointment.get('gender'))
+    return (
+        "ðŸ“‹ Ø¬Ø²Ø¦ÛŒØ§Øª Ù†ÙˆØ¨Øª\n\n"
+        f"ðŸ”– Ú©Ø¯ Ù¾ÛŒÚ¯ÛŒØ±ÛŒ: {get_tracking_code(appointment.get('id'))}\n"
+        f"ðŸ¥ Ø®Ø¯Ù…Øª: {service_name}\n"
+        f"ðŸ“… ØªØ§Ø±ÛŒØ®: {to_date_label(appointment.get('appointment_date'))}\n"
+        f"ðŸ• Ø³Ø§Ø¹Øª: {appointment.get('start_time')}\n"
+        f"ðŸ‘¤ Ø¨ÛŒÙ…Ø§Ø±: {appointment.get('patient_first_name') or ''} {appointment.get('patient_last_name') or ''}\n"
+        f"ðŸ“Œ ÙˆØ¶Ø¹ÛŒØª: {appointment_status_text(appointment.get('status'))}"
+    )
+
+async def send_callback_message(query: CallbackQuery, text: str, components=None) -> None:
+    if query.message is None: return
+    bot = query.message.get_bot()
+    await bot.send_message(query.message.chat_id, text, components=components)
+    try:
+        await query.message.delete()
+    except Exception:
+        pass
+
+async def get_user_appointment(query: CallbackQuery, appointment_id: int):
+    user = repository.get_user_by_bale_id(query.user.id)
+    if user is None: return None
+    return repository.get_user_appointment(user_id=user["id"], appointment_id=appointment_id)
+
+async def handle_my_appointments(message: Message) -> None:
+    user = repository.get_user_by_bale_id(message.author.id)
+    if user is None:
+        await message.reply("Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ú©Ø§Ø±Ø¨Ø±ÛŒ Ø´Ù…Ø§ Ù¾ÛŒØ¯Ø§ Ù†Ø´Ø¯.\nÙ„Ø·ÙØ§Ù‹ Ø§Ø¨ØªØ¯Ø§ /start Ø±Ø§ Ø¨Ø²Ù†ÛŒØ¯.")
+        return
+    current_appointments = repository.get_current_appointments_for_user(user["id"])
+    if not current_appointments:
+        await message.reply("ðŸ“‹ Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§ÛŒ Ù…Ù†\n\nØ´Ù…Ø§ Ù‡Ù†ÙˆØ² Ù†ÙˆØ¨ØªÛŒ Ø«Ø¨Øª Ù†Ú©Ø±Ø¯Ù‡â€ŒØ§ÛŒØ¯.", components=empty_appointments_keyboard())
+        return
+    await message.reply("ðŸ“‹ Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§ÛŒ Ù…Ù†\n\nÙ„Ø·ÙØ§Ù‹ ÛŒÚ©ÛŒ Ø§Ø² Ú¯Ø²ÛŒÙ†Ù‡â€ŒÙ‡Ø§ÛŒ Ø²ÛŒØ± Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:", components=appointments_menu_keyboard())
+
+async def handle_appointment_callback(query: CallbackQuery) -> None:
+    data = query.data or ""
+    if not data: return
+
+    if data == "appointments:menu":
+        await send_callback_message(query, "ðŸ“‹ Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§ÛŒ Ù…Ù†\n\nÙ„Ø·ÙØ§Ù‹ ÛŒÚ©ÛŒ Ø§Ø² Ú¯Ø²ÛŒÙ†Ù‡â€ŒÙ‡Ø§ÛŒ Ø²ÛŒØ± Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:", components=appointments_menu_keyboard())
+        return
+
+    if data == "appointments:current":
+        await handle_current_appointments_callback(query)
+        return
+
+    if data == "appointments:history":
+        await handle_appointment_history_callback(query)
+        return
+
+    if data == "appointments:home":
+        state_manager.clear_state(query.user.id)
+        await send_welcome_message(query, query.user.id)
+        return
+
+    if data.startswith("appointment_current:"):
+        await handle_appointment_detail_callback(query, prefix="appointment_current:")
+        return
+
+    if data.startswith("appointment_history:"):
+        await handle_appointment_detail_callback(query, prefix="appointment_history:")
+        return
+
+    if data.startswith("appointment_cancel:"):
+        await handle_appointment_cancel_callback(query)
+        return
+
+    if data.startswith("appointment_cancel_confirm:"):
+        await handle_appointment_cancel_confirm_callback(query)
+        return
+
+    if data.startswith("appointment_cancel_abort:"):
+        await handle_appointment_cancel_abort_callback(query)
+        return
+
+async def handle_current_appointments_callback(query: CallbackQuery) -> None:
+    user = repository.get_user_by_bale_id(query.user.id)
+    if user is None:
+        await send_callback_message(query, "Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ú©Ø§Ø±Ø¨Ø±ÛŒ Ø´Ù…Ø§ Ù¾ÛŒØ¯Ø§ Ù†Ø´Ø¯.", components=main_keyboard())
+        return
+    appointments = repository.get_current_appointments_for_user(user["id"])
+    if not appointments:
+        await send_callback_message(query, "ðŸ“‹ Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§ÛŒ Ø¬Ø§Ø±ÛŒ\n\nØ´Ù…Ø§ Ù‡Ù†ÙˆØ² Ù†ÙˆØ¨ØªÛŒ Ø«Ø¨Øª Ù†Ú©Ø±Ø¯Ù‡â€ŒØ§ÛŒØ¯.", components=empty_appointments_keyboard())
+        return
+    await send_callback_message(query, "ðŸ“‹ Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§ÛŒ Ø¬Ø§Ø±ÛŒ\n\nØ¨Ø±Ø§ÛŒ Ù…Ø´Ø§Ù‡Ø¯Ù‡ Ø¬Ø²Ø¦ÛŒØ§ØªØŒ Ù†ÙˆØ¨Øª Ù…ÙˆØ±Ø¯Ù†Ø¸Ø± Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:", components=appointment_list_keyboard(appointments, prefix="appointment_current"))
+
+async def handle_appointment_history_callback(query: CallbackQuery) -> None:
+    user = repository.get_user_by_bale_id(query.user.id)
+    if user is None:
+        await send_callback_message(query, "Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ú©Ø§Ø±Ø¨Ø±ÛŒ Ø´Ù…Ø§ Ù¾ÛŒØ¯Ø§ Ù†Ø´Ø¯.", components=main_keyboard())
+        return
+    appointments = repository.get_appointment_history_for_user(user["id"])
+    if not appointments:
+        await send_callback_message(query, "ðŸ“œ ØªØ§Ø±ÛŒØ®Ú†Ù‡ Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§\n\nØ¯Ø± Ø­Ø§Ù„ Ø­Ø§Ø¶Ø± ØªØ§Ø±ÛŒØ®Ú†Ù‡â€ŒØ§ÛŒ Ø§Ø² Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§ÛŒ Ù‚Ø¨Ù„ÛŒ Ø´Ù…Ø§ ÙˆØ¬ÙˆØ¯ Ù†Ø¯Ø§Ø±Ø¯.", components=empty_appointments_keyboard())
+        return
+    await send_callback_message(query, "ðŸ“œ ØªØ§Ø±ÛŒØ®Ú†Ù‡ Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§\n\nØ¨Ø±Ø§ÛŒ Ù…Ø´Ø§Ù‡Ø¯Ù‡ Ø¬Ø²Ø¦ÛŒØ§ØªØŒ Ù†ÙˆØ¨Øª Ù…ÙˆØ±Ø¯Ù†Ø¸Ø± Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:", components=appointment_list_keyboard(appointments, prefix="appointment_history"))
+
+async def handle_appointment_detail_callback(query: CallbackQuery, prefix: str) -> None:
+    data = query.data or ""
+    try:
+        appointment_id = int(data.split(prefix, 1)[1])
+    except (ValueError, IndexError):
+        return
+
+    appointment = await get_user_appointment(query, appointment_id)
+    if appointment is None:
+        await send_callback_message(query, "Ø§ÛŒÙ† Ù†ÙˆØ¨Øª Ù¾ÛŒØ¯Ø§ Ù†Ø´Ø¯ ÛŒØ§ Ø¯ÛŒÚ¯Ø± Ø¯Ø³ØªØ±Ø³ÛŒ Ø¨Ù‡ Ø¢Ù† Ø§Ù…Ú©Ø§Ù†â€ŒÙ¾Ø°ÛŒØ± Ù†ÛŒØ³Øª.", components=appointments_menu_keyboard())
+        return
+
+    can_cancel = can_cancel_appointment(appointment)
+    text = appointment_details_text(appointment)
+
+    if appointment.get("status") == "scheduled" and not can_cancel:
+        try:
+            appointment_date = date.fromisoformat(appointment.get("appointment_date"))
+        except (TypeError, ValueError):
+            appointment_date = None
+        if appointment_date is not None and appointment_date <= date.today():
+            text += "\n\nâš ï¸ Ø§ÛŒÙ† Ù†ÙˆØ¨Øª Ø¯ÛŒÚ¯Ø± Ù‚Ø§Ø¨Ù„ Ù„ØºÙˆ Ù†ÛŒØ³Øª."
+
+    await send_callback_message(query, text, components=appointment_detail_keyboard(appointment_id=appointment.get("id"), can_cancel=can_cancel))
+
+async def handle_appointment_cancel_callback(query: CallbackQuery) -> None:
+    data = query.data or ""
+    try:
+        appointment_id = int(data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        return
+
+    appointment = await get_user_appointment(query, appointment_id)
+    if appointment is None:
+        await send_callback_message(query, "Ø§ÛŒÙ† Ù†ÙˆØ¨Øª Ù¾ÛŒØ¯Ø§ Ù†Ø´Ø¯.", components=appointments_menu_keyboard())
+        return
+
+    if appointment.get("status") != "scheduled":
+        await send_callback_message(query, "Ø§ÛŒÙ† Ù†ÙˆØ¨Øª Ø¯ÛŒÚ¯Ø± ÙØ¹Ø§Ù„ Ù†ÛŒØ³Øª Ùˆ Ù‚Ø§Ø¨Ù„ Ù„ØºÙˆ Ù†Ù…ÛŒâ€ŒØ¨Ø§Ø´Ø¯.", components=appointment_detail_keyboard(appointment_id, can_cancel=False))
+        return
+
+    if not can_cancel_appointment(appointment):
+        await send_callback_message(query, "âš ï¸ Ù„ØºÙˆ Ø§ÛŒÙ† Ù†ÙˆØ¨Øª Ø§Ù…Ú©Ø§Ù†â€ŒÙ¾Ø°ÛŒØ± Ù†ÛŒØ³Øª.\n\nÙ„ØºÙˆ Ù†ÙˆØ¨Øª ÙÙ‚Ø· ØªØ§ ÛŒÚ© Ø±ÙˆØ² Ù‚Ø¨Ù„ Ø§Ø² ØªØ§Ø±ÛŒØ® Ù†ÙˆØ¨Øª Ø§Ù…Ú©Ø§Ù†â€ŒÙ¾Ø°ÛŒØ± Ø§Ø³Øª.", components=appointment_detail_keyboard(appointment_id, can_cancel=False))
+        return
+
+    service_name = get_service_display_name(appointment.get('service_name', ''), appointment.get('gender'))
+
+    await send_callback_message(
+        query,
+        f"âš ï¸ Ù„ØºÙˆ Ù†ÙˆØ¨Øª\n\nðŸ¥ Ø®Ø¯Ù…Øª: {service_name}\nðŸ“… ØªØ§Ø±ÛŒØ®: {to_date_label(appointment.get('appointment_date'))}\nðŸ• Ø³Ø§Ø¹Øª: {appointment.get('start_time')}\n\nØ¢ÛŒØ§ Ø§Ø² Ù„ØºÙˆ Ø§ÛŒÙ† Ù†ÙˆØ¨Øª Ù…Ø·Ù…Ø¦Ù† Ù‡Ø³ØªÛŒØ¯ØŸ",
+        components=cancel_confirmation_keyboard(appointment_id),
+    )
+
+async def handle_appointment_cancel_confirm_callback(query: CallbackQuery) -> None:
+    data = query.data or ""
+    try:
+        appointment_id = int(data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        return
+
+    appointment = await get_user_appointment(query, appointment_id)
+    if appointment is None:
+        await send_callback_message(query, "Ø§ÛŒÙ† Ù†ÙˆØ¨Øª Ù¾ÛŒØ¯Ø§ Ù†Ø´Ø¯.", components=appointments_menu_keyboard())
+        return
+
+    if appointment.get("status") != "scheduled":
+        await send_callback_message(query, "Ø§ÛŒÙ† Ù†ÙˆØ¨Øª Ø¯ÛŒÚ¯Ø± ÙØ¹Ø§Ù„ Ù†ÛŒØ³Øª Ùˆ Ù‚Ø§Ø¨Ù„ Ù„ØºÙˆ Ù†Ù…ÛŒâ€ŒØ¨Ø§Ø´Ø¯.", components=appointments_menu_keyboard())
+        return
+
+    if not can_cancel_appointment(appointment):
+        await send_callback_message(query, "âš ï¸ Ø²Ù…Ø§Ù† Ù…Ø¬Ø§Ø² Ù„ØºÙˆ Ø§ÛŒÙ† Ù†ÙˆØ¨Øª Ú¯Ø°Ø´ØªÙ‡ Ø§Ø³Øª.", components=appointment_detail_keyboard(appointment_id, can_cancel=False))
+        return
+
+    try:
+        repository.cancel_appointment(appointment_id)
+    except Exception:
+        await send_callback_message(query, "âŒ Ù‡Ù†Ú¯Ø§Ù… Ù„ØºÙˆ Ù†ÙˆØ¨Øª Ù…Ø´Ú©Ù„ÛŒ Ù¾ÛŒØ´ Ø¢Ù…Ø¯.\nÙ„Ø·ÙØ§Ù‹ Ø¯ÙˆØ¨Ø§Ø±Ù‡ ØªÙ„Ø§Ø´ Ú©Ù†ÛŒØ¯.", components=appointments_menu_keyboard())
+        return
+
+    state_manager.clear_state(query.user.id)
+    service_name = get_service_display_name(appointment.get('service_name', ''), appointment.get('gender'))
+
+    await send_callback_message(
+        query,
+        f"âœ… Ù†ÙˆØ¨Øª Ø´Ù…Ø§ Ø¨Ø§ Ù…ÙˆÙÙ‚ÛŒØª Ù„ØºÙˆ Ø´Ø¯.\n\nðŸ”– Ú©Ø¯ Ù¾ÛŒÚ¯ÛŒØ±ÛŒ: {get_tracking_code(appointment.get('id'))}\nðŸ¥ Ø®Ø¯Ù…Øª: {service_name}\nðŸ“… ØªØ§Ø±ÛŒØ®: {to_date_label(appointment.get('appointment_date'))}\nðŸ• Ø³Ø§Ø¹Øª: {appointment.get('start_time')}",
+        components=cancel_success_inline_keyboard(),
+    )
+
+async def handle_appointment_cancel_abort_callback(query: CallbackQuery) -> None:
+    data = query.data or ""
+    try:
+        appointment_id = int(data.split(":", 1)[1])
+    except (ValueError, IndexError):
+        return
+
+    appointment = await get_user_appointment(query, appointment_id)
+    if appointment is None:
+        await send_callback_message(query, "Ø§ÛŒÙ† Ù†ÙˆØ¨Øª Ù¾ÛŒØ¯Ø§ Ù†Ø´Ø¯.", components=appointments_menu_keyboard())
+        return
+
+    await send_callback_message(query, appointment_details_text(appointment), components=appointment_detail_keyboard(appointment_id=appointment.get("id"), can_cancel=can_cancel_appointment(appointment)))
+
+async def handle_cancel_appointment(message: Message) -> None:
+    await handle_my_appointments(message)
+
+async def process_cancel_appointment(message: Message) -> bool:
+    if state_manager.get_state(message.author.id) != CANCEL_APPOINTMENT:
+        return False
+    state_manager.clear_state(message.author.id)
+    await message.reply("Ù„ØºÙˆ Ù†ÙˆØ¨Øª Ø§Ø² Ø·Ø±ÛŒÙ‚ Ø¨Ø®Ø´ Â«Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§ÛŒ Ù…Ù†Â» Ø§Ù†Ø¬Ø§Ù… Ù…ÛŒâ€ŒØ´ÙˆØ¯.", components=appointments_menu_keyboard())
+    return True
+
+
+==================================================
+FILE: handlers\booking.py
+==================================================
+import asyncio
+from datetime import datetime, timedelta
+from bale import Message, CallbackQuery
+
+from database.repository import repository
+from services.schedule_service import schedule_service
+from utils.helpers import to_persian_date, to_date_label, get_service_display_name, get_msg_id, activate_text_keyboard
+from utils.keyboards import (
+    booking_target_keyboard, booking_services_keyboard, booking_dates_keyboard, booking_times_keyboard,
+    booking_checkout_keyboard, booking_confirmation_keyboard, back_to_services_keyboard,
+    other_cancel_inline_keyboard, other_back_inline_keyboard, gender_keyboard, insurance_keyboard, main_keyboard,
+    other_patient_confirm_keyboard, edit_other_cancel_inline_keyboard, edit_other_back_inline_keyboard
+)
+from utils.state_manager import state_manager
+from utils.validators import validate_full_name, validate_national_id, validate_phone_number, normalize_digits
+from handlers.patients import REGISTRATION_NAME, safe_delete_previous_inline, send_tracked_message
+
+BOOKING_TARGET = "booking_target"
+BOOKING_SERVICE = "booking_service"
+BOOKING_DATE = "booking_date"
+BOOKING_TIME = "booking_time"
+BOOKING_CHECKOUT = "booking_checkout"
+
+OTHER_PATIENT_NATIONAL_ID = "booking_other_national_id"
+OTHER_PATIENT_NAME = "booking_other_name"
+OTHER_PATIENT_PHONE = "booking_other_phone"
+OTHER_PATIENT_GENDER = "booking_other_gender"
+OTHER_PATIENT_INSURANCE = "booking_other_insurance"
+
+EDIT_OTHER_NAME = "edit_other_name"
+EDIT_OTHER_PHONE = "edit_other_phone"
+EDIT_OTHER_GENDER = "edit_other_gender"
+EDIT_OTHER_INSURANCE = "edit_other_insurance"
+
+SERVICE_DEFINITIONS = {
+    "ÙˆÛŒØ²ÛŒØª Ø¯Ú©ØªØ± Ú¯Ø±Ø§ÛŒÙ„ÛŒ": False,
+    "ØºÙ…Ø² Ùˆ Ø±Ú¯ Ú¯ÛŒØ±ÛŒ": False,
+    "Ø·Ø¨ Ø³ÙˆØ²Ù†ÛŒ": False,
+    "ÙØµØ¯": False,
+    "Ø§Ø³Ú©Ù† Ú©Ù„ Ø¨Ø¯Ù†": False,
+    "Ø³Ù… Ø²Ø¯Ø§ÛŒÛŒ": False,
+    "Ø§Ù…Ø¨Ø¯ÛŒÙ†Ú¯(Ù„Ø§ØºØ±ÛŒ)": False,
+    "Ø¨Ø§Ø¯Ú©Ø´": True,
+    "Ø­Ø¬Ø§Ù…Øª Ø¹Ø§Ù…": True,
+    "Ø²Ø§Ù„ÙˆØ¯Ø±Ù…Ø§Ù†ÛŒ": True,
+}
+
+GENDER_MAP = {"Ø¢Ù‚Ø§": "male", "Ø®Ø§Ù†Ù…": "female"}
+INSURANCE_MAP = {"Ø³Ù„Ø§Ù…Øª": "health", "ØªØ£Ù…ÛŒÙ† Ø§Ø¬ØªÙ…Ø§Ø¹ÛŒ": "social_security", "Ù†ÛŒØ±ÙˆÙ‡Ø§ÛŒ Ù…Ø³Ù„Ø­": "armed_forces", "Ø¨Ø¯ÙˆÙ† Ø¨ÛŒÙ…Ù‡": "none"}
+GENDER_DISPLAY = {"male": "Ø¢Ù‚Ø§", "female": "Ø®Ø§Ù†Ù…"}
+INSURANCE_DISPLAY = {"health": "Ø³Ù„Ø§Ù…Øª", "social_security": "ØªØ£Ù…ÛŒÙ† Ø§Ø¬ØªÙ…Ø§Ø¹ÛŒ", "armed_forces": "Ù†ÛŒØ±ÙˆÙ‡Ø§ÛŒ Ù…Ø³Ù„Ø­", "none": "Ø¨Ø¯ÙˆÙ† Ø¨ÛŒÙ…Ù‡"}
+
+def get_selected_patient(user_id: int):
+    user = repository.get_user_by_bale_id(user_id)
+    if user is None: return None, None
+    patient = repository.get_patient_by_user_id(user["id"])
+    return user, patient
+
+def get_service_record(service_id: int):
+    try: service_id = int(service_id)
+    except: return None
+    services = repository.get_services()
+    for service in services:
+        if int(service["id"]) == service_id: return service
+    return None
+
+def get_services_for_booking():
+    services = repository.get_services()
+    wanted = set(SERVICE_DEFINITIONS.keys())
+    result = [s for s in services if s.get("name") in wanted]
+    order = {name: index for index, name in enumerate(SERVICE_DEFINITIONS.keys())}
+    result.sort(key=lambda item: order.get(item.get("name"), 999))
+    return result
+
+def service_requires_gender(service_name: str) -> bool:
+    return bool(SERVICE_DEFINITIONS.get(service_name, False))
+
+async def send_callback_message(query: CallbackQuery, text: str, components=None, delete_message=True):
+    if not query.message: return
+    bot = query.message.get_bot()
+    chat_id = query.message.chat_id
+    if delete_message:
+        try: await query.message.delete()
+        except: pass
+    msg = await bot.send_message(chat_id, text, components=components)
+    msg_id = get_msg_id(msg)
+    if msg_id: 
+        state_manager.set_data(query.user.id, "last_prompt_id", msg_id)
+        state_manager.set_data(query.user.id, "last_prompt_text", text)
+
+async def show_services(target, user_id: int):
+    services = get_services_for_booking()
+    if not services:
+        text = "Ø¯Ø± Ø­Ø§Ù„ Ø­Ø§Ø¶Ø± Ø®Ø¯Ù…Ø§Øª Ù†ÙˆØ¨Øªâ€ŒØ¯Ù‡ÛŒ Ø¯Ø± Ø³ÛŒØ³ØªÙ… Ø«Ø¨Øª Ù†Ø´Ø¯Ù‡ Ø§Ø³Øª."
+        if isinstance(target, CallbackQuery):
+            from utils.keyboards import main_keyboard
+            await send_callback_message(target, text, components=main_keyboard())
+        else:
+            from utils.keyboards import main_keyboard
+            await target.reply(text, components=main_keyboard())
+        return
+
+    state_manager.set_state(user_id, BOOKING_SERVICE)
+    state_manager.set_data(user_id, "services", services)
+
+    text = "ðŸ“… Ø¯Ø±ÛŒØ§ÙØª Ù†ÙˆØ¨Øª\n\nÙ„Ø·ÙØ§Ù‹ Ø®Ø¯Ù…Øª Ù…ÙˆØ±Ø¯ Ù†Ø¸Ø± Ø®ÙˆØ¯ Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:"
+    keyboard = booking_services_keyboard(services)
+
+    if isinstance(target, CallbackQuery): await send_callback_message(target, text, components=keyboard)
+    else: await target.reply(text, components=keyboard)
+
+async def show_other_patient_profile(target, user_id: int, patient: dict):
+    text = (
+        "ðŸªª **Ù¾Ø±ÙˆÙ†Ø¯Ù‡ Ø¨ÛŒÙ…Ø§Ø± ÛŒØ§ÙØª Ø´Ø¯:**\n\n"
+        f"ðŸ‘¤ Ù†Ø§Ù…: {patient.get('first_name','')} {patient.get('last_name','')}\n"
+        f"ðŸ’³ Ú©Ø¯ Ù…Ù„ÛŒ: {patient.get('national_id','')}\n"
+        f"ðŸ“± ØªÙ„ÙÙ†: {patient.get('phone_number','')}\n"
+        f"âš§ Ø¬Ù†Ø³ÛŒØª: {GENDER_DISPLAY.get(patient.get('gender', 'male'), 'Ù†Ø§Ù…Ø´Ø®Øµ')}\n"
+        f"ðŸ¥ Ø¨ÛŒÙ…Ù‡: {INSURANCE_DISPLAY.get(patient.get('insurance', 'none'), 'Ù†Ø§Ù…Ø´Ø®Øµ')}\n\n"
+        "Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ú¯Ø²ÛŒÙ†Ù‡â€ŒÙ‡Ø§ÛŒ Ø²ÛŒØ± Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯ ðŸ‘‡"
+    )
+    state_manager.set_state(user_id, "BOOKING_OTHER_CONFIRM")
+    if isinstance(target, CallbackQuery):
+        await send_callback_message(target, text, components=other_patient_confirm_keyboard())
+    else:
+        await send_tracked_message(target, user_id, text, components=other_patient_confirm_keyboard())
+
+async def handle_booking_other_callback(query: CallbackQuery):
+    user_id = query.user.id
+    data = query.data or ""
+    if not data.startswith("booking_other:"): return
+    action = data.split(":", 1)[1]
+    
+    if action == "proceed":
+        await show_services(query, user_id)
+    elif action == "edit":
+        state_manager.set_state(user_id, EDIT_OTHER_NAME)
+        bot = query.message.get_bot()
+        chat_id = query.message.chat_id
+        await activate_text_keyboard(bot, chat_id, is_registered=True)
+        text = "âœï¸ **ÙˆÛŒØ±Ø§ÛŒØ´ Ø§Ø·Ù„Ø§Ø¹Ø§Øª**\n\nðŸ‘¤ Ù„Ø·ÙØ§Ù‹ Ù†Ø§Ù… Ùˆ Ù†Ø§Ù… Ø®Ø§Ù†ÙˆØ§Ø¯Ú¯ÛŒ Ø¬Ø¯ÛŒØ¯ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: Ø¹Ù„ÛŒ Ø±Ø¶Ø§ÛŒÛŒ)"
+        await send_callback_message(query, text, components=edit_other_cancel_inline_keyboard())
+    elif action == "cancel_edit":
+        national_id = state_manager.get_data(user_id, "other_national_id")
+        patient = repository.get_patient_by_national_id(national_id)
+        if patient:
+            await show_other_patient_profile(query, user_id, patient)
+
+async def handle_booking_start(message: Message):
+    user_id = message.author.id
+    user = repository.get_user_by_bale_id(user_id)
+    if user is None:
+        await message.reply("Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ú©Ø§Ø±Ø¨Ø±ÛŒ Ø´Ù…Ø§ Ù¾ÛŒØ¯Ø§ Ù†Ø´Ø¯.\nÙ„Ø·ÙØ§Ù‹ Ø§Ø¨ØªØ¯Ø§ /start Ø±Ø§ Ø¨Ø²Ù†ÛŒØ¯.")
+        return
+    state_manager.clear_state(user_id)
+    state_manager.set_state(user_id, BOOKING_TARGET)
+    await message.reply("ðŸ“… Ø¯Ø±ÛŒØ§ÙØª Ù†ÙˆØ¨Øª\n\nÙ„Ø·ÙØ§Ù‹ Ù…Ø´Ø®Øµ Ú©Ù†ÛŒØ¯ Ù†ÙˆØ¨Øª Ø±Ø§ Ø¨Ø±Ø§ÛŒ Ú†Ù‡ Ú©Ø³ÛŒ Ù…ÛŒâ€ŒØ®ÙˆØ§Ù‡ÛŒØ¯:", components=booking_target_keyboard())
+
+async def handle_booking_start_callback(query: CallbackQuery):
+    user_id = query.user.id
+    state_manager.clear_state(user_id)
+    state_manager.set_state(user_id, BOOKING_TARGET)
+    await send_callback_message(query, "ðŸ“… Ø¯Ø±ÛŒØ§ÙØª Ù†ÙˆØ¨Øª\n\nÙ„Ø·ÙØ§Ù‹ Ù…Ø´Ø®Øµ Ú©Ù†ÛŒØ¯ Ù†ÙˆØ¨Øª Ø±Ø§ Ø¨Ø±Ø§ÛŒ Ú†Ù‡ Ú©Ø³ÛŒ Ù…ÛŒâ€ŒØ®ÙˆØ§Ù‡ÛŒØ¯:", components=booking_target_keyboard())
+
+async def handle_booking_target_callback(query: CallbackQuery):
+    user_id = query.user.id
+    data = query.data or ""
+    if not data.startswith("booking_target:") or state_manager.get_state(user_id) != BOOKING_TARGET: return
+    target = data.split(":", 1)[1]
+
+    if target == "self":
+        user, patient = get_selected_patient(user_id)
+        if user is None or patient is None or not patient.get("national_id"):
+            state_manager.clear_state(user_id)
+            state_manager.set_state(user_id, REGISTRATION_NAME)
+            from utils.keyboards import cancel_only_inline_keyboard
+            bot = query.message.get_bot()
+            await activate_text_keyboard(bot, query.message.chat_id, is_registered=False)
+            await send_callback_message(query, "ðŸ‘¤ Ø¨Ø±Ø§ÛŒ Ø¯Ø±ÛŒØ§ÙØª Ù†ÙˆØ¨ØªØŒ Ø§Ø¨ØªØ¯Ø§ Ø¨Ø§ÛŒØ¯ Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø´Ù…Ø§ Ø«Ø¨Øª Ø´ÙˆØ¯.\n\nÙ„Ø·ÙØ§Ù‹ Ù†Ø§Ù… Ùˆ Ù†Ø§Ù… Ø®Ø§Ù†ÙˆØ§Ø¯Ú¯ÛŒ Ø®ÙˆØ¯ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: Ø¹Ù„ÛŒ Ø±Ø¶Ø§ÛŒÛŒ)", components=cancel_only_inline_keyboard("âŒ Ù„ØºÙˆ"))
+            return
+        state_manager.set_data(user_id, "booking_target", "self")
+        state_manager.set_data(user_id, "booking_patient_id", patient["id"])
+        state_manager.set_data(user_id, "patient_full_name", f"{patient.get('first_name','')} {patient.get('last_name','')}")
+        await show_services(query, user_id)
+        return
+
+    if target == "other":
+        state_manager.clear_state(user_id)
+        state_manager.set_data(user_id, "booking_target", "other")
+        state_manager.set_state(user_id, OTHER_PATIENT_NATIONAL_ID)
+        bot = query.message.get_bot()
+        chat_id = query.message.chat_id
+        try: await query.message.delete()
+        except: pass
+        await activate_text_keyboard(bot, chat_id, is_registered=True)
+        text = "ðŸ‘¥ Ø«Ø¨Øª Ù†ÙˆØ¨Øª Ø¨Ø±Ø§ÛŒ Ø´Ø®Øµ Ø¯ÛŒÚ¯Ø±\n\nØ§Ø¨ØªØ¯Ø§ Ù„Ø·ÙØ§Ù‹ Ú©Ø¯ Ù…Ù„ÛŒ Û±Û° Ø±Ù‚Ù…ÛŒ ÙØ±Ø¯ Ù…ÙˆØ±Ø¯Ù†Ø¸Ø± Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: 0012345678)"
+        msg = await bot.send_message(chat_id, text, components=other_cancel_inline_keyboard())
+        msg_id = get_msg_id(msg)
+        if msg_id: 
+            state_manager.set_data(user_id, "last_prompt_id", msg_id)
+            state_manager.set_data(user_id, "last_prompt_text", text)
+
+async def handle_booking_service_callback(query: CallbackQuery):
+    user_id = query.user.id
+    data = query.data or ""
+    if not data.startswith("booking_service:") or state_manager.get_state(user_id) != BOOKING_SERVICE: return
+    try: service_id = int(data.split(":", 1)[1])
+    except: return
+
+    service = get_service_record(service_id)
+    if service is None or service["name"] not in SERVICE_DEFINITIONS:
+        await send_callback_message(query, "Ø®Ø¯Ù…Øª Ø§Ù†ØªØ®Ø§Ø¨â€ŒØ´Ø¯Ù‡ Ù…Ø¹ØªØ¨Ø± Ù†ÛŒØ³Øª.", components=booking_services_keyboard(get_services_for_booking()))
+        return
+
+    state_manager.set_data(user_id, "service_id", service_id)
+    state_manager.set_data(user_id, "service_name_base", service["name"])
+    target = state_manager.get_data(user_id, "booking_target")
+
+    if service_requires_gender(service["name"]):
+        if target == "self":
+            _, patient = get_selected_patient(user_id)
+            gender = patient.get("gender") if patient else "male"
+        else:
+            gender = state_manager.get_data(user_id, "other_gender", "male")
+    else:
+        gender = "all"
+
+    state_manager.set_data(user_id, "gender", gender)
+    await show_booking_dates(query, user_id)
+
+async def show_booking_dates(query: CallbackQuery, user_id: int):
+    service_id = state_manager.get_data(user_id, "service_id")
+    gender = state_manager.get_data(user_id, "gender")
+    base_name = state_manager.get_data(user_id, "service_name_base", "Ø®Ø¯Ù…Øª")
+    service_name = get_service_display_name(base_name, gender)
+
+    if service_id is None or gender not in ("male", "female", "all"):
+        from utils.keyboards import main_keyboard
+        await send_callback_message(query, "Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø±Ø²Ø±Ùˆ Ù†Ø§Ù‚Øµ Ø§Ø³Øª.\nÙ„Ø·ÙØ§Ù‹ Ø¯ÙˆØ¨Ø§Ø±Ù‡ Ø¯Ø±ÛŒØ§ÙØª Ù†ÙˆØ¨Øª Ø±Ø§ Ø´Ø±ÙˆØ¹ Ú©Ù†ÛŒØ¯.", components=main_keyboard())
+        state_manager.clear_state(user_id)
+        return
+
+    dates = schedule_service.get_available_dates(service_id=service_id, gender=gender, days_ahead=7)
+    availability = {}
+    for d in dates:
+        times = schedule_service.get_available_times(service_id=service_id, appointment_date=d, gender=gender)
+        has_avail = any(int(item.get("booked_count", 0)) < int(item.get("capacity", 1)) for item in times)
+        availability[d] = has_avail
+
+    state_manager.set_data(user_id, "dates", dates)
+    state_manager.set_state(user_id, BOOKING_DATE)
+    await send_callback_message(query, f"ðŸ¥ Ø®Ø¯Ù…Øª Ø§Ù†ØªØ®Ø§Ø¨ Ø´Ø¯Ù‡: {service_name}\n\nÙ„Ø·ÙØ§Ù‹ ØªØ§Ø±ÛŒØ® Ù…ÙˆØ±Ø¯Ù†Ø¸Ø± Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:\n\nâŒ ØªØ§Ø±ÛŒØ®â€ŒÙ‡Ø§ÛŒ ØªÚ©Ù…ÛŒÙ„â€ŒØ´Ø¯Ù‡ Ù‚Ø§Ø¨Ù„ Ø§Ù†ØªØ®Ø§Ø¨ Ù†ÛŒØ³ØªÙ†Ø¯.", components=booking_dates_keyboard(dates, service_id=service_id, gender=gender, availability=availability))
+
+async def handle_booking_date_callback(query: CallbackQuery):
+    user_id = query.user.id
+    data = query.data or ""
+    if not data.startswith("booking_date:") or state_manager.get_state(user_id) != BOOKING_DATE: return
+    appointment_date = data.split(":", 1)[1]
+    dates = state_manager.get_data(user_id, "dates", [])
+
+    if appointment_date not in dates or schedule_service.is_friday(appointment_date): return
+    service_id = state_manager.get_data(user_id, "service_id")
+    gender = state_manager.get_data(user_id, "gender")
+
+    times = schedule_service.get_available_times(service_id=service_id, appointment_date=appointment_date, gender=gender)
+    has_available_time = any(int(item.get("booked_count", 0)) < int(item.get("capacity", 1)) for item in times)
+
+    if not has_available_time:
+        await show_booking_dates(query, user_id)
+        return
+
+    state_manager.set_data(user_id, "appointment_date", appointment_date)
+    state_manager.set_data(user_id, "times", times)
+    state_manager.set_state(user_id, BOOKING_TIME)
+
+    base_name = state_manager.get_data(user_id, "service_name_base", "Ø®Ø¯Ù…Øª")
+    service_name = get_service_display_name(base_name, gender)
+    await send_callback_message(query, f"ðŸ¥ Ø®Ø¯Ù…Øª: {service_name}\nðŸ“… ØªØ§Ø±ÛŒØ®: {to_persian_date(appointment_date)}\n\nÙ„Ø·ÙØ§Ù‹ Ø³Ø§Ø¹Øª Ù…ÙˆØ±Ø¯Ù†Ø¸Ø± Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:", components=booking_times_keyboard(times, appointment_date))
+
+async def handle_booking_time_callback(query: CallbackQuery):
+    user_id = query.user.id
+    data = query.data or ""
+    if not data.startswith("booking_time:") or state_manager.get_state(user_id) != BOOKING_TIME: return
+    parts = data.split(":", 2)
+    if len(parts) != 3: return
+    appointment_date, start_time = parts[1], parts[2]
+
+    service_id = state_manager.get_data(user_id, "service_id")
+    gender = state_manager.get_data(user_id, "gender")
+
+    if not schedule_service.is_slot_available(service_id=service_id, appointment_date=appointment_date, start_time=start_time, gender=gender):
+        times = schedule_service.get_available_times(service_id=service_id, appointment_date=appointment_date, gender=gender)
+        await send_callback_message(query, "âš ï¸ Ø§ÛŒÙ† Ø¸Ø±ÙÛŒØª Ù‡Ù…ÛŒÙ† Ø§Ù„Ø§Ù† Ù¾Ø± Ø´Ø¯.\n\nÙ„Ø·ÙØ§Ù‹ Ø³Ø§Ø¹Øª Ø¯ÛŒÚ¯Ø±ÛŒ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯.", components=booking_times_keyboard(times, appointment_date))
+        return
+
+    value = repository.get_setting("appointment_duration")
+    try:
+        duration = int(value or "30")
+        end_time = (datetime.strptime(start_time, "%H:%M") + timedelta(minutes=duration)).strftime("%H:%M")
+    except ValueError:
+        return
+
+    state_manager.set_data(user_id, "start_time", start_time)
+    state_manager.set_data(user_id, "end_time", end_time)
+    state_manager.set_state(user_id, BOOKING_CHECKOUT)
+
+    base_name = state_manager.get_data(user_id, "service_name_base")
+    service_name = get_service_display_name(base_name, gender)
+    patient_name = state_manager.get_data(user_id, "patient_full_name", "Ø¨ÛŒÙ…Ø§Ø±")
+    gender_text = "Ø¢Ù‚Ø§" if gender == "male" else ("Ø®Ø§Ù†Ù…" if gender == "female" else "Ø¹Ù…ÙˆÙ…ÛŒ")
+
+    summary_text = (
+        "ðŸ“‹ Ù¾ÛŒØ´â€ŒÙØ§Ú©ØªÙˆØ± Ùˆ ØªØ£ÛŒÛŒØ¯ Ù†Ù‡Ø§ÛŒÛŒ Ù†ÙˆØ¨Øª\n\n"
+        f"ðŸ‘¤ Ø¨ÛŒÙ…Ø§Ø±: {patient_name}\n"
+        f"ðŸ¥ Ø®Ø¯Ù…Øª: {service_name}\n"
+        f"âš§ Ø¬Ù†Ø³ÛŒØª: {gender_text}\n"
+        f"ðŸ“… ØªØ§Ø±ÛŒØ®: {to_date_label(appointment_date)}\n"
+        f"ðŸ•’ Ø³Ø§Ø¹Øª: {start_time}\n\n"
+        "Ø¯Ø± ØµÙˆØ±Øª ØµØ­Øª Ø§Ø·Ù„Ø§Ø¹Ø§ØªØŒ Ø±ÙˆÛŒ Â«âœ… ØªØ£ÛŒÛŒØ¯ Ùˆ Ø«Ø¨Øª Ù†Ù‡Ø§ÛŒÛŒÂ» Ú©Ù„ÛŒÚ© Ú©Ù†ÛŒØ¯."
+    )
+    await send_callback_message(query, summary_text, components=booking_checkout_keyboard())
+
+async def handle_booking_checkout_callback(query: CallbackQuery):
+    user_id = query.user.id
+    data = query.data or ""
+    if not data.startswith("booking_checkout:") or state_manager.get_state(user_id) != BOOKING_CHECKOUT: return
+    action = data.split(":", 1)[1]
+
+    if action == "cancel":
+        state_manager.clear_state(user_id)
+        from utils.helpers import send_welcome_message
+        await send_callback_message(query, "âŒ ÙØ±Ø¢ÛŒÙ†Ø¯ Ø¯Ø±ÛŒØ§ÙØª Ù†ÙˆØ¨Øª Ù„ØºÙˆ Ø´Ø¯.", components=main_keyboard())
+        await send_welcome_message(query, user_id)
+        return
+
+    if action == "confirm":
+        data_cache = state_manager.get_all_data(user_id)
+        service_id = data_cache.get("service_id")
+        gender = data_cache.get("gender")
+        appointment_date = data_cache.get("appointment_date")
+        start_time = data_cache.get("start_time")
+        end_time = data_cache.get("end_time")
+        target = data_cache.get("booking_target")
+        base_name = data_cache.get("service_name_base")
+        service_name = get_service_display_name(base_name, gender)
+
+        if not schedule_service.is_slot_available(service_id=service_id, appointment_date=appointment_date, start_time=start_time, gender=gender):
+            times = schedule_service.get_available_times(service_id=service_id, appointment_date=appointment_date, gender=gender)
+            state_manager.set_state(user_id, BOOKING_TIME)
+            await send_callback_message(query, "âš ï¸ Ù…ØªØ§Ø³ÙØ§Ù†Ù‡ Ø¯Ø± Ù‡Ù…ÛŒÙ† Ú†Ù†Ø¯ Ù„Ø­Ø¸Ù‡ Ø¸Ø±ÙÛŒØª Ø§ÛŒÙ† Ø³Ø§Ø¹Øª Ù¾Ø± Ø´Ø¯.\nÙ„Ø·ÙØ§Ù‹ Ø³Ø§Ø¹Øª Ø¯ÛŒÚ¯Ø±ÛŒ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯.", components=booking_times_keyboard(times, appointment_date))
+            return
+
+        user, patient = get_selected_patient(user_id)
+
+        if target == "other":
+            if data_cache.get("other_patient_exists"):
+                patient_id = data_cache.get("booking_patient_id")
+                try: repository.add_patient_profile(user["id"], patient_id)
+                except: pass
+            else:
+                try:
+                    patient_id = repository.create_patient(
+                        user_id=None, national_id=data_cache["other_national_id"], first_name=data_cache["other_first_name"],
+                        last_name=data_cache["other_last_name"], phone_number=data_cache["other_phone"], birth_date=None,
+                        gender=data_cache["other_gender"], insurance=data_cache["other_insurance"]
+                    )
+                    repository.add_patient_profile(user["id"], patient_id)
+                except Exception:
+                    from utils.keyboards import clinic_info_keyboard
+                    await send_callback_message(query, "âŒ Ø®Ø·Ø§ Ø¯Ø± Ø°Ø®ÛŒØ±Ù‡ Ø§Ø·Ù„Ø§Ø¹Ø§Øª. Ù„Ø·ÙØ§Ù‹ Ù…Ø¬Ø¯Ø¯Ø§Ù‹ ØªÙ„Ø§Ø´ Ú©Ù†ÛŒØ¯.", components=clinic_info_keyboard())
+                    state_manager.clear_state(user_id)
+                    return
+        else:
+            if not patient: 
+                from utils.keyboards import clinic_info_keyboard
+                await send_callback_message(query, "âŒ Ø®Ø·Ø§ÛŒ Ø¯Ø³ØªØ±Ø³ÛŒ Ø¨Ù‡ Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø´Ù…Ø§.", components=clinic_info_keyboard())
+                state_manager.clear_state(user_id)
+                return
+            patient_id = patient["id"]
+
+        try:
+            appointment_gender = gender if gender != "all" else (patient.get("gender") if patient else "male")
+            appointment_id = repository.create_appointment_if_available(
+                patient_id=patient_id, service_id=service_id, appointment_date=appointment_date,
+                start_time=start_time, end_time=end_time, gender=appointment_gender, status="scheduled", created_by=(user["id"] if user else None)
+            )
+        except ValueError as e:
+            if str(e) == "active_appointment_exists":
+                error_msg = (
+                    "âŒ **Ø´Ø®ØµÛŒ Ø¨Ø§ Ø§ÛŒÙ† Ú©Ø¯ Ù…Ù„ÛŒ Ø¯Ø± Ø­Ø§Ù„ Ø­Ø§Ø¶Ø± ÛŒÚ© Ù†ÙˆØ¨Øª ÙØ¹Ø§Ù„ Ø¨Ø±Ø§ÛŒ Ø§ÛŒÙ† Ø®Ø¯Ù…Øª Ø¯Ø§Ø±Ø¯.**\n"
+                    "ØªØ§ Ø²Ù…Ø§Ù†ÛŒ Ú©Ù‡ Ù†ÙˆØ¨Øª Ù‚Ø¨Ù„ÛŒ Ø§Ù†Ø¬Ø§Ù… ÛŒØ§ Ù„ØºÙˆ Ù†Ø´ÙˆØ¯ØŒ Ù†Ù…ÛŒâ€ŒØªÙˆØ§Ù†ÛŒØ¯ Ù†ÙˆØ¨Øª Ø¬Ø¯ÛŒØ¯ÛŒ Ø¨Ø±Ø§ÛŒ Ù‡Ù…ÛŒÙ† Ø®Ø¯Ù…Øª Ø¯Ø±ÛŒØ§ÙØª Ú©Ù†ÛŒØ¯.\n\n"
+                    "ðŸ”¹ **Ø±Ø§Ù‡Ù†Ù…Ø§:**\n"
+                    "â€¢ Ø¬Ù‡Øª Ù…Ø´Ø§Ù‡Ø¯Ù‡ Ø¬Ø²Ø¦ÛŒØ§Øª Ù†ÙˆØ¨Øª Ùˆ ÛŒØ§ Ù„ØºÙˆ Ø¢Ù†ØŒ Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ù…Ù†ÙˆÛŒ **Â«ðŸ“‹ Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§ÛŒ Ù…Ù†Â»** Ø§Ù‚Ø¯Ø§Ù… Ú©Ù†ÛŒØ¯.\n"
+                    "â€¢ Ø¯Ø± ØµÙˆØ±ØªÛŒ Ú©Ù‡ Ù‚ØµØ¯ Ø¯Ø§Ø±ÛŒØ¯ Ø¨Ø±Ø§ÛŒ Ø´Ø®Øµ Ø¯ÛŒÚ¯Ø±ÛŒ (Ø¨Ø¬Ø² Ø®ÙˆØ¯ØªØ§Ù†) Ù†ÙˆØ¨Øª Ø¨Ú¯ÛŒØ±ÛŒØ¯ØŒ Ø§Ø² Ù…Ù†ÙˆÛŒ Ø¯Ø±ÛŒØ§ÙØª Ù†ÙˆØ¨Øª Ú¯Ø²ÛŒÙ†Ù‡ **Â«ðŸ‘¥ Ø¨Ø±Ø§ÛŒ Ø´Ø®Øµ Ø¯ÛŒÚ¯Ø±Â»** Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ù†Ù…Ø§ÛŒÛŒØ¯."
+                )
+                await send_callback_message(query, error_msg, components=back_to_services_keyboard())
+                return
+            else:
+                from utils.keyboards import clinic_info_keyboard
+                await send_callback_message(query, "âŒ Ø®Ø·Ø§ Ø¯Ø± Ø«Ø¨Øª Ù†ÙˆØ¨Øª. Ù„Ø·ÙØ§Ù‹ Ø¯ÙˆØ¨Ø§Ø±Ù‡ ØªÙ„Ø§Ø´ Ú©Ù†ÛŒØ¯.", components=clinic_info_keyboard())
+                state_manager.clear_state(user_id)
+                return
+        except Exception:
+            from utils.keyboards import clinic_info_keyboard
+            await send_callback_message(query, "âŒ Ø®Ø·Ø§ Ø¯Ø± Ø«Ø¨Øª Ù†ÙˆØ¨Øª. Ù„Ø·ÙØ§Ù‹ Ø¯ÙˆØ¨Ø§Ø±Ù‡ ØªÙ„Ø§Ø´ Ú©Ù†ÛŒØ¯.", components=clinic_info_keyboard())
+            state_manager.clear_state(user_id)
+            return
+
+        if appointment_id is None:
+            state_manager.set_state(user_id, BOOKING_TIME)
+            times = schedule_service.get_available_times(service_id=service_id, appointment_date=appointment_date, gender=gender)
+            await send_callback_message(query, "âš ï¸ Ù…ØªØ§Ø³ÙØ§Ù†Ù‡ Ø¯Ø± Ù‡Ù…ÛŒÙ† Ù„Ø­Ø¸Ù‡ Ø¸Ø±ÙÛŒØª Ø§ÛŒÙ† Ø³Ø§Ø¹Øª Ù¾Ø± Ø´Ø¯.\nÙ„Ø·ÙØ§Ù‹ Ø³Ø§Ø¹Øª Ø¯ÛŒÚ¯Ø±ÛŒ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯.", components=booking_times_keyboard(times, appointment_date))
+            return
+
+        state_manager.clear_state(user_id)
+        
+        success_msg = (
+            f"âœ… Ù†ÙˆØ¨Øª Ø¨Ø§ Ù…ÙˆÙÙ‚ÛŒØª Ø«Ø¨Øª Ù†Ù‡Ø§ÛŒÛŒ Ø´Ø¯.\n\n"
+            f"ðŸ¥ Ø®Ø¯Ù…Øª: {service_name}\n"
+            f"ðŸ“… ØªØ§Ø±ÛŒØ®: {to_persian_date(appointment_date)}\n"
+            f"ðŸ•’ Ø³Ø§Ø¹Øª: {start_time}\n"
+            f"ðŸ”– Ú©Ø¯ Ù¾ÛŒÚ¯ÛŒØ±ÛŒ: CF-{appointment_id:06d}\n\n\n"
+            f"ðŸ”¸ Ø¬Ù‡Øª Ù…Ø´Ø§Ù‡Ø¯Ù‡ Ø¬Ø²Ø¦ÛŒØ§Øª Ù†ÙˆØ¨Øª Ùˆ ÛŒØ§ Ù„ØºÙˆ Ø¢Ù†ØŒ Ø§Ø² Ù…Ù†ÙˆÛŒ Â«ðŸ“‹ Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§ÛŒ Ù…Ù†Â» Ø§Ù‚Ø¯Ø§Ù… Ú©Ù†ÛŒØ¯.\n\n"
+            f"ðŸ”¸ Ø§Ù…Ú©Ø§Ù† Ù„ØºÙˆ Ù†ÙˆØ¨Øª ØªÙ†Ù‡Ø§ ØªØ§ Û²Û´ Ø³Ø§Ø¹Øª Ù‚Ø¨Ù„* Ø§Ø² Ø²Ù…Ø§Ù† Ø±Ø²Ø±Ùˆ ÙˆØ¬ÙˆØ¯ Ø¯Ø§Ø±Ø¯."
+        )
+        await send_callback_message(query, success_msg, components=booking_confirmation_keyboard())
+
+async def handle_booking_back_callback(query: CallbackQuery):
+    user_id = query.user.id
+    data = query.data or ""
+    if not data.startswith("booking_back:"): return
+    destination = data.split(":", 1)[1]
+
+    if destination == "home":
+        state_manager.clear_state(user_id)
+        from utils.helpers import send_welcome_message
+        await send_welcome_message(query, user_id)
+        return
+    if destination == "target":
+        state_manager.clear_state(user_id)
+        state_manager.set_state(user_id, BOOKING_TARGET)
+        await send_callback_message(query, "ðŸ“… Ø¯Ø±ÛŒØ§ÙØª Ù†ÙˆØ¨Øª\n\nÙ†ÙˆØ¨Øª Ø±Ø§ Ø¨Ø±Ø§ÛŒ Ú†Ù‡ Ú©Ø³ÛŒ Ù…ÛŒâ€ŒØ®ÙˆØ§Ù‡ÛŒØ¯ØŸ", components=booking_target_keyboard())
+        return
+    if destination == "services":
+        await show_services(query, user_id)
+        return
+    if destination == "dates":
+        service_id = state_manager.get_data(user_id, "service_id")
+        gender = state_manager.get_data(user_id, "gender")
+        dates = state_manager.get_data(user_id, "dates", [])
+        state_manager.set_state(user_id, BOOKING_DATE)
+        await send_callback_message(query, "ðŸ“… Ù„Ø·ÙØ§Ù‹ ØªØ§Ø±ÛŒØ® Ù…ÙˆØ±Ø¯Ù†Ø¸Ø± Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:\n\nâŒ ØªØ§Ø±ÛŒØ®â€ŒÙ‡Ø§ÛŒ ØªÚ©Ù…ÛŒÙ„â€ŒØ´Ø¯Ù‡ Ù‚Ø§Ø¨Ù„ Ø§Ù†ØªØ®Ø§Ø¨ Ù†ÛŒØ³ØªÙ†Ø¯.", components=booking_dates_keyboard(dates, service_id, gender))
+        return
+
+async def process_booking_message(message: Message) -> bool:
+    user_id = message.author.id
+    state = state_manager.get_state(user_id)
+    if state is None: return False
+    value = (message.text or "").strip()
+
+    if not value: return True
+
+    if state == OTHER_PATIENT_NATIONAL_ID:
+        if not validate_national_id(value):
+            await send_tracked_message(message, user_id, "Ú©Ø¯ Ù…Ù„ÛŒ Ù†Ø§Ù…Ø¹ØªØ¨Ø± Ø§Ø³Øª. Ù„Ø·ÙØ§Ù‹ Ø¯Ù‚ÛŒÙ‚Ø§Ù‹ Û±Û° Ø±Ù‚Ù… ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯.", components=other_back_inline_keyboard())
+            return True
+
+        value = normalize_digits(value) # Ø§Ù†Ú¯Ù„ÛŒØ³ÛŒ Ú©Ø±Ø¯Ù† Ø¹Ø¯Ø¯ Ù‚Ø¨Ù„ Ø§Ø² Ù¾Ø±Ø¯Ø§Ø²Ø´
+        await safe_delete_previous_inline(message, user_id)
+
+        user, patient = get_selected_patient(user_id)
+        if patient and patient.get("national_id") == value:
+            from utils.keyboards import booking_target_keyboard
+            state_manager.clear_state(user_id)
+            state_manager.set_state(user_id, BOOKING_TARGET)
+            await send_tracked_message(message, user_id, "âš ï¸ Ø§ÛŒÙ† Ú©Ø¯ Ù…Ù„ÛŒ Ù…ØªØ¹Ù„Ù‚ Ø¨Ù‡ Ø­Ø³Ø§Ø¨ Ú©Ø§Ø±Ø¨Ø±ÛŒ Ø®ÙˆØ¯ Ø´Ù…Ø§Ø³Øª.\n\nØ¨Ø±Ø§ÛŒ Ø¯Ø±ÛŒØ§ÙØª Ù†ÙˆØ¨Øª Ø¨Ø±Ø§ÛŒ Ø®ÙˆØ¯ØªØ§Ù†ØŒ Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ú¯Ø²ÛŒÙ†Ù‡ Â«ðŸ‘¤ Ø¨Ø±Ø§ÛŒ Ø®ÙˆØ¯Ù…Â» Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯:", components=booking_target_keyboard())
+            return True
+
+        existing_patient = repository.get_patient_by_national_id(value)
+
+        if existing_patient:
+            state_manager.set_data(user_id, "other_national_id", value)
+            state_manager.set_data(user_id, "other_patient_exists", True)
+            state_manager.set_data(user_id, "booking_patient_id", existing_patient["id"])
+            state_manager.set_data(user_id, "other_gender", existing_patient.get("gender", "male"))
+            state_manager.set_data(user_id, "patient_full_name", f"{existing_patient.get('first_name','')} {existing_patient.get('last_name','')}")
+
+            await show_other_patient_profile(message, user_id, existing_patient)
+        else:
+            state_manager.set_data(user_id, "other_national_id", value)
+            state_manager.set_data(user_id, "other_patient_exists", False)
+            state_manager.set_state(user_id, OTHER_PATIENT_NAME)
+            await send_tracked_message(message, user_id, "ðŸ‘¤ Ø§ÛŒÙ† Ú©Ø¯ Ù…Ù„ÛŒ Ø¯Ø± Ø³ÛŒØ³ØªÙ… Ø«Ø¨Øª Ù†Ø´Ø¯Ù‡ Ø§Ø³Øª.\n\nÙ„Ø·ÙØ§Ù‹ Ù†Ø§Ù… Ùˆ Ù†Ø§Ù… Ø®Ø§Ù†ÙˆØ§Ø¯Ú¯ÛŒ Ø¨ÛŒÙ…Ø§Ø± Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: Ø¹Ù„ÛŒ Ø±Ø¶Ø§ÛŒÛŒ)", components=other_back_inline_keyboard())
+        return True
+
+    # ------------------ Ø«Ø¨Øª Ø´Ø®Øµ Ø¬Ø¯ÛŒØ¯ ------------------
+    if state == OTHER_PATIENT_NAME:
+        normalized = " ".join(value.split())
+        if not validate_full_name(normalized):
+            await send_tracked_message(message, user_id, "Ù†Ø§Ù… Ù…Ø¹ØªØ¨Ø± Ù†ÛŒØ³Øª.\n\n(Ù…Ø«Ø§Ù„: Ø¹Ù„ÛŒ Ø±Ø¶Ø§ÛŒÛŒ)", components=other_back_inline_keyboard())
+            return True
+            
+        await safe_delete_previous_inline(message, user_id)
+        parts = normalized.split()
+        state_manager.set_data(user_id, "other_first_name", parts[0])
+        state_manager.set_data(user_id, "other_last_name", " ".join(parts[1:]))
+        state_manager.set_data(user_id, "patient_full_name", normalized)
+        
+        state_manager.set_state(user_id, OTHER_PATIENT_PHONE)
+        await send_tracked_message(message, user_id, "ðŸ“± Ù„Ø·ÙØ§Ù‹ Ø´Ù…Ø§Ø±Ù‡ Ù…ÙˆØ¨Ø§ÛŒÙ„ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: 09123456789)", components=other_back_inline_keyboard())
+        return True
+
+    if state == OTHER_PATIENT_PHONE:
+        if not validate_phone_number(value):
+            await send_tracked_message(message, user_id, "Ø´Ù…Ø§Ø±Ù‡ Ù…ÙˆØ¨Ø§ÛŒÙ„ Ù†Ø§Ù…Ø¹ØªØ¨Ø± Ø§Ø³Øª.", components=other_back_inline_keyboard())
+            return True
+            
+        value = normalize_digits(value) # Ø§Ù†Ú¯Ù„ÛŒØ³ÛŒ Ú©Ø±Ø¯Ù† Ø¹Ø¯Ø¯
+        await safe_delete_previous_inline(message, user_id)
+        state_manager.set_data(user_id, "other_phone", value)
+        state_manager.set_state(user_id, OTHER_PATIENT_GENDER)
+        
+        await message.reply("Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ù…Ù†ÙˆÛŒ Ø¨Ø§Ø²Ø´Ø¯Ù‡ Ø¯Ø± Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯:", components=gender_keyboard())
+        await send_tracked_message(message, user_id, "âš§ Ù„Ø·ÙØ§Ù‹ Ø¬Ù†Ø³ÛŒØª Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:", components=other_back_inline_keyboard())
+        return True
+
+    if state == OTHER_PATIENT_GENDER:
+        if value not in GENDER_MAP:
+            await message.reply("Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ù…Ù†ÙˆÛŒ Ø¨Ø§Ø²Ø´Ø¯Ù‡ Ø¯Ø± Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯:", components=gender_keyboard())
+            await send_tracked_message(message, user_id, "Ù„Ø·ÙØ§Ù‹ Ù…Ù†Ø­ØµØ±Ø§Ù‹ Ø§Ø² Ø¯Ú©Ù…Ù‡â€ŒÙ‡Ø§ÛŒ Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯.", components=other_back_inline_keyboard())
+            return True
+            
+        await safe_delete_previous_inline(message, user_id)
+        
+        state_manager.set_data(user_id, "other_gender", GENDER_MAP[value])
+        state_manager.set_state(user_id, OTHER_PATIENT_INSURANCE)
+        
+        await message.reply("Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ù…Ù†ÙˆÛŒ Ø¨Ø§Ø²Ø´Ø¯Ù‡ Ø¯Ø± Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯:", components=insurance_keyboard())
+        await send_tracked_message(message, user_id, "ðŸ¥ Ù„Ø·ÙØ§Ù‹ Ø¨ÛŒÙ…Ù‡ Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:", components=other_back_inline_keyboard())
+        return True
+
+    if state == OTHER_PATIENT_INSURANCE:
+        if value not in INSURANCE_MAP:
+            await message.reply("Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ù…Ù†ÙˆÛŒ Ø¨Ø§Ø²Ø´Ø¯Ù‡ Ø¯Ø± Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯:", components=insurance_keyboard())
+            await send_tracked_message(message, user_id, "Ù„Ø·ÙØ§Ù‹ Ù…Ù†Ø­ØµØ±Ø§Ù‹ Ø§Ø² Ø¯Ú©Ù…Ù‡â€ŒÙ‡Ø§ÛŒ Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯.", components=other_back_inline_keyboard())
+            return True
+            
+        await safe_delete_previous_inline(message, user_id)
+        
+        state_manager.set_data(user_id, "other_insurance", INSURANCE_MAP[value])
+        
+        await message.reply("âœ… Ø§Ø·Ù„Ø§Ø¹Ø§Øª ÙØ±Ø¯ Ø¯Ø±ÛŒØ§ÙØª Ø´Ø¯.\Ø¯Ø± Ø­Ø§Ù„ Ø§Ù†ØªÙ‚Ø§Ù„ Ø¨Ù‡ Ø¨Ø®Ø´ Ø§Ù†ØªØ®Ø§Ø¨ Ø®Ø¯Ù…Ø§Øª...", components=main_keyboard())
+        await asyncio.sleep(0.5)
+        await show_services(message, user_id)
+        return True
+
+
+    # ------------------ ÙˆÛŒØ±Ø§ÛŒØ´ Ø´Ø®Øµ Ø¯ÛŒÚ¯Ø± ------------------
+    if state == EDIT_OTHER_NAME:
+        normalized = " ".join(value.split())
+        if not validate_full_name(normalized):
+            await send_tracked_message(message, user_id, "Ù†Ø§Ù… Ù…Ø¹ØªØ¨Ø± Ù†ÛŒØ³Øª.\n\n(Ù…Ø«Ø§Ù„: Ø¹Ù„ÛŒ Ø±Ø¶Ø§ÛŒÛŒ)", components=edit_other_cancel_inline_keyboard())
+            return True
+            
+        await safe_delete_previous_inline(message, user_id)
+        parts = normalized.split()
+        state_manager.set_data(user_id, "edit_other_first_name", parts[0])
+        state_manager.set_data(user_id, "edit_other_last_name", " ".join(parts[1:]))
+        state_manager.set_state(user_id, EDIT_OTHER_PHONE)
+        await send_tracked_message(message, user_id, "ðŸ“± Ù„Ø·ÙØ§Ù‹ Ø´Ù…Ø§Ø±Ù‡ Ù…ÙˆØ¨Ø§ÛŒÙ„ Ø¬Ø¯ÛŒØ¯ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: 09123456789)", components=edit_other_back_inline_keyboard())
+        return True
+
+    if state == EDIT_OTHER_PHONE:
+        if not validate_phone_number(value):
+            await send_tracked_message(message, user_id, "Ø´Ù…Ø§Ø±Ù‡ Ù…ÙˆØ¨Ø§ÛŒÙ„ Ù†Ø§Ù…Ø¹ØªØ¨Ø± Ø§Ø³Øª.", components=edit_other_back_inline_keyboard())
+            return True
+            
+        value = normalize_digits(value) # Ø§Ù†Ú¯Ù„ÛŒØ³ÛŒ Ú©Ø±Ø¯Ù† Ø¹Ø¯Ø¯
+        await safe_delete_previous_inline(message, user_id)
+        state_manager.set_data(user_id, "edit_other_phone", value)
+        state_manager.set_state(user_id, EDIT_OTHER_GENDER)
+        
+        await message.reply("Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ù…Ù†ÙˆÛŒ Ø¨Ø§Ø²Ø´Ø¯Ù‡ Ø¯Ø± Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯:", components=gender_keyboard())
+        await send_tracked_message(message, user_id, "âš§ Ù„Ø·ÙØ§Ù‹ Ø¬Ù†Ø³ÛŒØª Ø¬Ø¯ÛŒØ¯ Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:", components=edit_other_back_inline_keyboard())
+        return True
+
+    if state == EDIT_OTHER_GENDER:
+        if value not in GENDER_MAP:
+            await message.reply("Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ù…Ù†ÙˆÛŒ Ø¨Ø§Ø²Ø´Ø¯Ù‡ Ø¯Ø± Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯:", components=gender_keyboard())
+            await send_tracked_message(message, user_id, "Ù„Ø·ÙØ§Ù‹ Ù…Ù†Ø­ØµØ±Ø§Ù‹ Ø§Ø² Ø¯Ú©Ù…Ù‡â€ŒÙ‡Ø§ÛŒ Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯.", components=edit_other_back_inline_keyboard())
+            return True
+            
+        await safe_delete_previous_inline(message, user_id)
+        
+        state_manager.set_data(user_id, "edit_other_gender", GENDER_MAP[value])
+        state_manager.set_state(user_id, EDIT_OTHER_INSURANCE)
+        
+        await message.reply("Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ù…Ù†ÙˆÛŒ Ø¨Ø§Ø²Ø´Ø¯Ù‡ Ø¯Ø± Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯:", components=insurance_keyboard())
+        await send_tracked_message(message, user_id, "ðŸ¥ Ù„Ø·ÙØ§Ù‹ Ø¨ÛŒÙ…Ù‡ Ø¬Ø¯ÛŒØ¯ Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:", components=edit_other_back_inline_keyboard())
+        return True
+
+    if state == EDIT_OTHER_INSURANCE:
+        if value not in INSURANCE_MAP:
+            await message.reply("Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ù…Ù†ÙˆÛŒ Ø¨Ø§Ø²Ø´Ø¯Ù‡ Ø¯Ø± Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯:", components=insurance_keyboard())
+            await send_tracked_message(message, user_id, "Ù„Ø·ÙØ§Ù‹ Ù…Ù†Ø­ØµØ±Ø§Ù‹ Ø§Ø² Ø¯Ú©Ù…Ù‡â€ŒÙ‡Ø§ÛŒ Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯.", components=edit_other_back_inline_keyboard())
+            return True
+            
+        await safe_delete_previous_inline(message, user_id)
+        state_manager.set_data(user_id, "edit_other_insurance", INSURANCE_MAP[value])
+        
+        data_cache = state_manager.get_all_data(user_id)
+        patient_id = data_cache.get("booking_patient_id")
+        national_id = data_cache.get("other_national_id")
+
+        try:
+            try:
+                repository.update_patient(
+                    patient_id=patient_id, first_name=data_cache["edit_other_first_name"], last_name=data_cache["edit_other_last_name"],
+                    phone_number=data_cache["edit_other_phone"], birth_date=None,
+                    gender=data_cache["edit_other_gender"], insurance=data_cache["edit_other_insurance"], national_id=national_id
+                )
+            except TypeError:
+                repository.update_patient(
+                    patient_id=patient_id, first_name=data_cache["edit_other_first_name"], last_name=data_cache["edit_other_last_name"],
+                    phone_number=data_cache["edit_other_phone"], birth_date=None,
+                    gender=data_cache["edit_other_gender"], insurance=data_cache["edit_other_insurance"]
+                )
+        except Exception:
+            await message.reply("âŒ Ø®Ø·Ø§ Ø¯Ø± Ø«Ø¨Øª Ø§Ø·Ù„Ø§Ø¹Ø§Øª.")
+            return True
+
+        state_manager.set_data(user_id, "other_gender", data_cache["edit_other_gender"])
+        state_manager.set_data(user_id, "patient_full_name", f"{data_cache['edit_other_first_name']} {data_cache['edit_other_last_name']}")
+        
+        await message.reply("âœ… Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø´Ø®Øµ Ø¨Ø§ Ù…ÙˆÙÙ‚ÛŒØª ÙˆÛŒØ±Ø§ÛŒØ´ Ø´Ø¯.", components=main_keyboard())
+        await asyncio.sleep(0.5)
+        
+        updated_patient = repository.get_patient_by_national_id(national_id)
+        await show_other_patient_profile(message, user_id, updated_patient)
+        return True
+
+
+    if state in (BOOKING_SERVICE, BOOKING_DATE, BOOKING_TIME, BOOKING_CHECKOUT):
+        await message.reply("Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ø·Ø±ÛŒÙ‚ Ø¯Ú©Ù…Ù‡â€ŒÙ‡Ø§ÛŒ Ø´ÛŒØ´Ù‡â€ŒØ§ÛŒ Ù†Ù…Ø§ÛŒØ´â€ŒØ¯Ø§Ø¯Ù‡â€ŒØ´Ø¯Ù‡ Ø¯Ø± Ø¨Ø§Ù„Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ø®ÙˆØ¯ Ø±Ø§ Ø§Ù†Ø¬Ø§Ù… Ø¯Ù‡ÛŒØ¯.")
+        return True
+
+    return False
+
+
+==================================================
+FILE: handlers\callbacks.py
+==================================================
+import asyncio
+from bale import CallbackQuery
+
+from handlers.booking import (
+    handle_booking_target_callback,
+    handle_booking_service_callback,
+    handle_booking_date_callback,
+    handle_booking_time_callback,
+    handle_booking_checkout_callback,
+    handle_booking_back_callback,
+    handle_booking_start_callback,
+    handle_booking_other_callback,
+    OTHER_PATIENT_NATIONAL_ID, OTHER_PATIENT_NAME, OTHER_PATIENT_PHONE, OTHER_PATIENT_GENDER, OTHER_PATIENT_INSURANCE,
+    EDIT_OTHER_NAME, EDIT_OTHER_PHONE, EDIT_OTHER_GENDER, EDIT_OTHER_INSURANCE
+)
+
+from handlers.appointments import (
+    handle_appointment_callback,
+)
+
+from handlers.patients import (
+    handle_patient_edit, handle_patient_lookup, REGISTRATION_NAME, REGISTRATION_NATIONAL_ID, REGISTRATION_PHONE, REGISTRATION_GENDER, REGISTRATION_INSURANCE,
+    EDIT_NAME, EDIT_NATIONAL_ID, EDIT_PHONE, EDIT_GENDER, EDIT_INSURANCE
+)
+from utils.state_manager import state_manager
+from utils.helpers import send_welcome_message, get_msg_id, activate_text_keyboard
+from utils.keyboards import (
+    cancel_only_inline_keyboard, cancel_back_inline_keyboard, edit_cancel_inline_keyboard, edit_back_inline_keyboard,
+    other_cancel_inline_keyboard, other_back_inline_keyboard, gender_keyboard, insurance_keyboard, main_keyboard,
+    edit_other_cancel_inline_keyboard, edit_other_back_inline_keyboard
+)
+
+async def send_callback_message(query: CallbackQuery, text: str, components=None):
+    bot = query.message.get_bot()
+    try: await query.message.delete()
+    except: pass
+    msg = await bot.send_message(query.message.chat_id, text, components=components)
+    msg_id = get_msg_id(msg)
+    if msg_id: 
+        state_manager.set_data(query.user.id, "last_prompt_id", msg_id)
+        state_manager.set_data(query.user.id, "last_prompt_text", text)
+
+async def handle_callback(query: CallbackQuery) -> None:
+    data = query.data or ""
+    user_id = query.user.id
+    if not data:
+        return
+
+    if data.startswith("ignore:"):
+        return
+
+    if data == "booking_start_inline":
+        await handle_booking_start_callback(query)
+        return
+
+    if data.startswith("booking_other:"):
+        await handle_booking_other_callback(query)
+        return
+
+    if data == "register_cancel":
+        state_manager.clear_state(user_id)
+        bot = query.message.get_bot()
+        try: await query.message.delete()
+        except: pass
+        await bot.send_message(query.message.chat_id, "âŒ ÙØ±Ø§ÛŒÙ†Ø¯ Ù…ØªÙˆÙ‚Ù Ø´Ø¯.", components=main_keyboard())
+        await send_welcome_message(query, user_id)
+        return
+
+    if data == "patient:edit_cancel":
+        state_manager.clear_state(user_id)
+        bot = query.message.get_bot()
+        try: await query.message.delete()
+        except: pass
+        await bot.send_message(query.message.chat_id, "âŒ ÙØ±Ø§ÛŒÙ†Ø¯ ÙˆÛŒØ±Ø§ÛŒØ´ Ù„ØºÙˆ Ø´Ø¯.", components=main_keyboard())
+        await handle_patient_lookup(query)
+        return
+
+    if data == "patient:edit":
+        await handle_patient_edit(query)
+        return
+
+    if data == "register_back":
+        state = state_manager.get_state(user_id)
+        bot = query.message.get_bot()
+        chat_id = query.message.chat_id
+        
+        if state == REGISTRATION_NATIONAL_ID:
+            state_manager.set_state(user_id, REGISTRATION_NAME)
+            await send_callback_message(query, "âœ¨ Ú©Ø§Ø±Ø¨Ø± Ú¯Ø±Ø§Ù…ÛŒØŒ Ø¬Ù‡Øª ØªÚ©Ù…ÛŒÙ„ Ù¾Ø±ÙˆÙ†Ø¯Ù‡ Ø§Ù„Ú©ØªØ±ÙˆÙ†ÛŒÚ© Ø®ÙˆØ¯ØŒ Ù„Ø·ÙØ§Ù‹ Ù†Ø§Ù… Ùˆ Ù†Ø§Ù… Ø®Ø§Ù†ÙˆØ§Ø¯Ú¯ÛŒ Ø®ÙˆØ¯ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: Ø¹Ù„ÛŒ Ø±Ø¶Ø§ÛŒÛŒ)", components=cancel_only_inline_keyboard("âŒ Ù„ØºÙˆ Ø«Ø¨Øªâ€ŒÙ†Ø§Ù…"))
+            return
+        elif state == REGISTRATION_PHONE:
+            state_manager.set_state(user_id, REGISTRATION_NATIONAL_ID)
+            await send_callback_message(query, "ðŸ’³ Ù„Ø·ÙØ§Ù‹ Ú©Ø¯ Ù…Ù„ÛŒ Û±Û° Ø±Ù‚Ù…ÛŒ Ø®ÙˆØ¯ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: 0012345678)", components=cancel_back_inline_keyboard("âŒ Ù„ØºÙˆ Ø«Ø¨Øªâ€ŒÙ†Ø§Ù…"))
+            return
+        elif state == REGISTRATION_GENDER:
+            state_manager.set_state(user_id, REGISTRATION_PHONE)
+            await activate_text_keyboard(bot, chat_id, is_registered=False)
+            await send_callback_message(query, "ðŸ“± Ù„Ø·ÙØ§Ù‹ Ø´Ù…Ø§Ø±Ù‡ Ù…ÙˆØ¨Ø§ÛŒÙ„ Ø®ÙˆØ¯ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ù†Ù…Ø§ÛŒÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: 09123456789)", components=cancel_back_inline_keyboard("âŒ Ù„ØºÙˆ Ø«Ø¨Øªâ€ŒÙ†Ø§Ù…"))
+            return
+        elif state == REGISTRATION_INSURANCE:
+            state_manager.set_state(user_id, REGISTRATION_GENDER)
+            await bot.send_message(chat_id, "Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ù…Ù†ÙˆÛŒ Ø¨Ø§Ø²Ø´Ø¯Ù‡ Ø¯Ø± Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯:", components=gender_keyboard())
+            await send_callback_message(query, "âš§ Ù„Ø·ÙØ§Ù‹ Ø¬Ù†Ø³ÛŒØª Ø®ÙˆØ¯ Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:", components=cancel_back_inline_keyboard("âŒ Ù„ØºÙˆ Ø«Ø¨Øªâ€ŒÙ†Ø§Ù…"))
+            return
+
+    if data == "edit_back":
+        state = state_manager.get_state(user_id)
+        bot = query.message.get_bot()
+        chat_id = query.message.chat_id
+        
+        if state == EDIT_NATIONAL_ID:
+            state_manager.set_state(user_id, EDIT_NAME)
+            await send_callback_message(query, "âœï¸ **Ø¨Ù‡â€ŒØ±ÙˆØ²Ø±Ø³Ø§Ù†ÛŒ Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø¨ÛŒÙ…Ø§Ø±**\n\nðŸ‘¤ Ù„Ø·ÙØ§Ù‹ Ù†Ø§Ù… Ùˆ Ù†Ø§Ù… Ø®Ø§Ù†ÙˆØ§Ø¯Ú¯ÛŒ Ø¬Ø¯ÛŒØ¯ Ø®ÙˆØ¯ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: Ø¹Ù„ÛŒ Ø±Ø¶Ø§ÛŒÛŒ)", components=edit_cancel_inline_keyboard("âŒ Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´"))
+            return
+        elif state == EDIT_PHONE:
+            state_manager.set_state(user_id, EDIT_NATIONAL_ID)
+            await send_callback_message(query, "ðŸ’³ Ù„Ø·ÙØ§Ù‹ Ú©Ø¯ Ù…Ù„ÛŒ Û±Û° Ø±Ù‚Ù…ÛŒ Ø¬Ø¯ÛŒØ¯ Ø®ÙˆØ¯ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: 0012345678)", components=edit_back_inline_keyboard("âŒ Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´"))
+            return
+        elif state == EDIT_GENDER:
+            state_manager.set_state(user_id, EDIT_PHONE)
+            await activate_text_keyboard(bot, chat_id, is_registered=True)
+            await send_callback_message(query, "ðŸ“± Ù„Ø·ÙØ§Ù‹ Ø´Ù…Ø§Ø±Ù‡ Ù…ÙˆØ¨Ø§ÛŒÙ„ Ø¬Ø¯ÛŒØ¯ Ø®ÙˆØ¯ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ù†Ù…Ø§ÛŒÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: 09123456789)", components=edit_back_inline_keyboard("âŒ Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´"))
+            return
+        elif state == EDIT_INSURANCE:
+            state_manager.set_state(user_id, EDIT_GENDER)
+            await bot.send_message(chat_id, "Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ù…Ù†ÙˆÛŒ Ø¨Ø§Ø²Ø´Ø¯Ù‡ Ø¯Ø± Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯:", components=gender_keyboard())
+            await send_callback_message(query, "âš§ Ù„Ø·ÙØ§Ù‹ Ø¬Ù†Ø³ÛŒØª Ø®ÙˆØ¯ Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:", components=edit_back_inline_keyboard("âŒ Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´"))
+            return
+
+    if data == "edit_other_back":
+        state = state_manager.get_state(user_id)
+        bot = query.message.get_bot()
+        chat_id = query.message.chat_id
+        
+        if state == EDIT_OTHER_PHONE:
+            state_manager.set_state(user_id, EDIT_OTHER_NAME)
+            await send_callback_message(query, "âœï¸ **ÙˆÛŒØ±Ø§ÛŒØ´ Ø§Ø·Ù„Ø§Ø¹Ø§Øª**\n\nðŸ‘¤ Ù„Ø·ÙØ§Ù‹ Ù†Ø§Ù… Ùˆ Ù†Ø§Ù… Ø®Ø§Ù†ÙˆØ§Ø¯Ú¯ÛŒ Ø¬Ø¯ÛŒØ¯ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: Ø¹Ù„ÛŒ Ø±Ø¶Ø§ÛŒÛŒ)", components=edit_other_cancel_inline_keyboard())
+            return
+        elif state == EDIT_OTHER_GENDER:
+            state_manager.set_state(user_id, EDIT_OTHER_PHONE)
+            await activate_text_keyboard(bot, chat_id, is_registered=True)
+            await send_callback_message(query, "ðŸ“± Ù„Ø·ÙØ§Ù‹ Ø´Ù…Ø§Ø±Ù‡ Ù…ÙˆØ¨Ø§ÛŒÙ„ Ø¬Ø¯ÛŒØ¯ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: 09123456789)", components=edit_other_back_inline_keyboard())
+            return
+        elif state == EDIT_OTHER_INSURANCE:
+            state_manager.set_state(user_id, EDIT_OTHER_GENDER)
+            await bot.send_message(chat_id, "Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ù…Ù†ÙˆÛŒ Ø¨Ø§Ø²Ø´Ø¯Ù‡ Ø¯Ø± Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯:", components=gender_keyboard())
+            await send_callback_message(query, "âš§ Ù„Ø·ÙØ§Ù‹ Ø¬Ù†Ø³ÛŒØª Ø¬Ø¯ÛŒØ¯ Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:", components=edit_other_back_inline_keyboard())
+            return
+
+    if data == "other_back":
+        state = state_manager.get_state(user_id)
+        bot = query.message.get_bot()
+        chat_id = query.message.chat_id
+        
+        if state == OTHER_PATIENT_NAME:
+            state_manager.set_state(user_id, OTHER_PATIENT_NATIONAL_ID)
+            await send_callback_message(query, "ðŸ‘¥ Ø«Ø¨Øª Ù†ÙˆØ¨Øª Ø¨Ø±Ø§ÛŒ Ø´Ø®Øµ Ø¯ÛŒÚ¯Ø±\n\nØ§Ø¨ØªØ¯Ø§ Ù„Ø·ÙØ§Ù‹ Ú©Ø¯ Ù…Ù„ÛŒ Û±Û° Ø±Ù‚Ù…ÛŒ ÙØ±Ø¯ Ù…ÙˆØ±Ø¯Ù†Ø¸Ø± Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: 0012345678)", components=other_cancel_inline_keyboard())
+            return
+        elif state == OTHER_PATIENT_PHONE:
+            state_manager.set_state(user_id, OTHER_PATIENT_NAME)
+            await send_callback_message(query, "ðŸ‘¤ Ø§ÛŒÙ† Ú©Ø¯ Ù…Ù„ÛŒ Ø¯Ø± Ø³ÛŒØ³ØªÙ… Ø«Ø¨Øª Ù†Ø´Ø¯Ù‡ Ø§Ø³Øª.\n\nÙ„Ø·ÙØ§Ù‹ Ù†Ø§Ù… Ùˆ Ù†Ø§Ù… Ø®Ø§Ù†ÙˆØ§Ø¯Ú¯ÛŒ Ø¨ÛŒÙ…Ø§Ø± Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: Ø¹Ù„ÛŒ Ø±Ø¶Ø§ÛŒÛŒ)", components=other_back_inline_keyboard())
+            return
+        elif state == OTHER_PATIENT_GENDER:
+            state_manager.set_state(user_id, OTHER_PATIENT_PHONE)
+            await activate_text_keyboard(bot, chat_id, is_registered=True)
+            await send_callback_message(query, "ðŸ“± Ù„Ø·ÙØ§Ù‹ Ø´Ù…Ø§Ø±Ù‡ Ù…ÙˆØ¨Ø§ÛŒÙ„ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: 09123456789)", components=other_back_inline_keyboard())
+            return
+        elif state == OTHER_PATIENT_INSURANCE:
+            state_manager.set_state(user_id, OTHER_PATIENT_GENDER)
+            await bot.send_message(chat_id, "Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ù…Ù†ÙˆÛŒ Ø¨Ø§Ø²Ø´Ø¯Ù‡ Ø¯Ø± Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯:", components=gender_keyboard())
+            await send_callback_message(query, "âš§ Ù„Ø·ÙØ§Ù‹ Ø¬Ù†Ø³ÛŒØª Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:", components=other_back_inline_keyboard())
+            return
+        # Ø§Ú¯Ø± Ú©Ø§Ø±Ø¨Ø± Ø¯Ø± Ø­Ø§Ù„ Ù…Ø´Ø§Ù‡Ø¯Ù‡ Ù¾Ø±ÙˆÙ†Ø¯Ù‡ Ø´Ø®Øµ Ø¯ÛŒÚ¯Ø± Ø¨Ø§Ø´Ø¯ Ùˆ Ø¯Ú©Ù…Ù‡ Ø¨Ø§Ø²Ú¯Ø´Øª Ø±Ø§ Ø¨Ø²Ù†Ø¯
+        elif state == "BOOKING_OTHER_CONFIRM":
+            state_manager.set_state(user_id, OTHER_PATIENT_NATIONAL_ID)
+            await send_callback_message(query, "ðŸ‘¥ Ø«Ø¨Øª Ù†ÙˆØ¨Øª Ø¨Ø±Ø§ÛŒ Ø´Ø®Øµ Ø¯ÛŒÚ¯Ø±\n\nØ§Ø¨ØªØ¯Ø§ Ù„Ø·ÙØ§Ù‹ Ú©Ø¯ Ù…Ù„ÛŒ Û±Û° Ø±Ù‚Ù…ÛŒ ÙØ±Ø¯ Ù…ÙˆØ±Ø¯Ù†Ø¸Ø± Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: 0012345678)", components=other_cancel_inline_keyboard())
+            return
+
+    if (
+        data.startswith("appointments:")
+        or data.startswith("appointment_current:")
+        or data.startswith("appointment_history:")
+        or data.startswith("appointment_cancel:")
+        or data.startswith("appointment_cancel_confirm:")
+        or data.startswith("appointment_cancel_abort:")
+    ):
+        await handle_appointment_callback(query)
+        return
+
+    if data.startswith("booking_target:"):
+        await handle_booking_target_callback(query)
+        return
+
+    if data.startswith("booking_back:"):
+        await handle_booking_back_callback(query)
+        return
+
+    if data.startswith("booking_service:"):
+        await handle_booking_service_callback(query)
+        return
+
+    if data.startswith("booking_date:"):
+        await handle_booking_date_callback(query)
+        return
+
+    if data.startswith("booking_time:"):
+        await handle_booking_time_callback(query)
+        return
+
+    if data.startswith("booking_checkout:"):
+        await handle_booking_checkout_callback(query)
+        return
+
+
+==================================================
+FILE: handlers\patients.py
+==================================================
+import asyncio
+from bale import Message, CallbackQuery
+
+from database.repository import repository
+from utils.keyboards import (
+    patient_keyboard, gender_keyboard, insurance_keyboard, register_keyboard, main_keyboard, 
+    cancel_only_inline_keyboard, cancel_back_inline_keyboard,
+    edit_cancel_inline_keyboard, edit_back_inline_keyboard
+)
+from utils.state_manager import state_manager
+from utils.validators import validate_full_name, validate_national_id, validate_phone_number, normalize_digits
+from utils.helpers import send_welcome_message, get_msg_id, activate_text_keyboard
+
+REGISTRATION_NAME = "registration_name"
+REGISTRATION_NATIONAL_ID = "registration_national_id"
+REGISTRATION_PHONE = "registration_phone"
+REGISTRATION_GENDER = "registration_gender"
+REGISTRATION_INSURANCE = "registration_insurance"
+
+EDIT_NAME = "edit_name"
+EDIT_NATIONAL_ID = "edit_national_id"
+EDIT_PHONE = "edit_phone"
+EDIT_GENDER = "edit_gender"
+EDIT_INSURANCE = "edit_insurance"
+
+INSURANCE_OPTIONS = {"Ø³Ù„Ø§Ù…Øª": "health", "ØªØ£Ù…ÛŒÙ† Ø§Ø¬ØªÙ…Ø§Ø¹ÛŒ": "social_security", "ØªØ§Ù…ÛŒÙ† Ø§Ø¬ØªÙ…Ø§Ø¹ÛŒ": "social_security", "Ù†ÛŒØ±ÙˆÙ‡Ø§ÛŒ Ù…Ø³Ù„Ø­": "armed_forces", "Ø¨Ø¯ÙˆÙ† Ø¨ÛŒÙ…Ù‡": "none"}
+GENDER_OPTIONS = {"Ø¢Ù‚Ø§": "male", "Ø®Ø§Ù†Ù…": "female"}
+GENDER_DISPLAY = {"male": "Ø¢Ù‚Ø§", "female": "Ø®Ø§Ù†Ù…"}
+INSURANCE_DISPLAY = {"health": "Ø³Ù„Ø§Ù…Øª", "social_security": "ØªØ£Ù…ÛŒÙ† Ø§Ø¬ØªÙ…Ø§Ø¹ÛŒ", "armed_forces": "Ù†ÛŒØ±ÙˆÙ‡Ø§ÛŒ Ù…Ø³Ù„Ø­", "none": "Ø¨Ø¯ÙˆÙ† Ø¨ÛŒÙ…Ù‡"}
+
+async def safe_delete_previous_inline(message, user_id: int):
+    last_id = state_manager.get_data(user_id, "last_prompt_id")
+    last_text = state_manager.get_data(user_id, "last_prompt_text")
+    if last_id and last_text:
+        try:
+            bot = message.get_bot() if hasattr(message, "get_bot") else None
+            if bot: await bot.edit_message(message.chat_id, last_id, text=last_text, components=None)
+        except:
+            pass
+        state_manager.set_data(user_id, "last_prompt_id", None)
+        state_manager.set_data(user_id, "last_prompt_text", None)
+
+async def send_tracked_message(message, user_id: int, text: str, components=None):
+    msg = await message.reply(text, components=components)
+    msg_id = get_msg_id(msg)
+    if msg_id: 
+        state_manager.set_data(user_id, "last_prompt_id", msg_id)
+        state_manager.set_data(user_id, "last_prompt_text", text)
+
+async def handle_patient_registration(message: Message) -> None:
+    user_id = message.author.id
+    user = repository.get_user_by_bale_id(user_id)
+
+    if user is None:
+        repository.create_user(bale_user_id=user_id, username=message.author.username, first_name=message.author.first_name, last_name=message.author.last_name)
+        user = repository.get_user_by_bale_id(user_id)
+
+    patient = repository.get_patient_by_user_id(user["id"])
+    if patient is not None and patient.get("national_id"):
+        await message.reply("âœ… Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø¨ÛŒÙ…Ø§Ø± Ø´Ù…Ø§ Ù‚Ø¨Ù„Ø§Ù‹ Ø«Ø¨Øª Ø´Ø¯Ù‡ Ø§Ø³Øª.", components=main_keyboard())
+        return
+
+    state_manager.clear_state(user_id)
+    state_manager.set_state(user_id, REGISTRATION_NAME)
+    
+    await activate_text_keyboard(message.get_bot(), message.chat_id, is_registered=False)
+
+    await send_tracked_message(message, user_id,
+        "âœ¨ Ú©Ø§Ø±Ø¨Ø± Ú¯Ø±Ø§Ù…ÛŒØŒ Ø¬Ù‡Øª ØªÚ©Ù…ÛŒÙ„ Ù¾Ø±ÙˆÙ†Ø¯Ù‡ Ø§Ù„Ú©ØªØ±ÙˆÙ†ÛŒÚ© Ø®ÙˆØ¯ØŒ Ù„Ø·ÙØ§Ù‹ Ù†Ø§Ù… Ùˆ Ù†Ø§Ù… Ø®Ø§Ù†ÙˆØ§Ø¯Ú¯ÛŒ Ø®ÙˆØ¯ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n"
+        "(Ù…Ø«Ø§Ù„: Ø¹Ù„ÛŒ Ø±Ø¶Ø§ÛŒÛŒ)",
+        components=cancel_only_inline_keyboard("âŒ Ù„ØºÙˆ Ø«Ø¨Øªâ€ŒÙ†Ø§Ù…")
+    )
+
+async def process_registration_message(message: Message) -> bool:
+    user_id = message.author.id
+    state = state_manager.get_state(user_id)
+    if state is None: return False
+
+    value = (message.text or "").strip()
+
+    if not value:
+        await message.reply("âš ï¸ Ù„Ø·ÙØ§Ù‹ ÛŒÚ© Ù…Ù‚Ø¯Ø§Ø± Ù…Ø¹ØªØ¨Ø± ÙˆØ§Ø±Ø¯ Ù†Ù…Ø§ÛŒÛŒØ¯.")
+        return True
+
+    if state == REGISTRATION_NAME:
+        normalized_name = " ".join(value.split())
+        parts = normalized_name.split(" ")
+        if len(parts) < 2 or not validate_full_name(normalized_name):
+            await send_tracked_message(message, user_id, "Ù†Ø§Ù… Ùˆ Ù†Ø§Ù… Ø®Ø§Ù†ÙˆØ§Ø¯Ú¯ÛŒ ÙˆØ§Ø±Ø¯Ø´Ø¯Ù‡ ØµØ­ÛŒØ­ Ù†ÛŒØ³Øª.\nÙ„Ø·ÙØ§Ù‹ Ù†Ø§Ù… Ø±Ø§ Ø¨Ù‡ ØµÙˆØ±Øª Ú©Ø§Ù…Ù„ Ùˆ Ø¨Ø§ Ø­Ø±ÙˆÙ ÙØ§Ø±Ø³ÛŒ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯.\n\n(Ù…Ø«Ø§Ù„: Ø¹Ù„ÛŒ Ø±Ø¶Ø§ÛŒÛŒ)", components=cancel_only_inline_keyboard("âŒ Ù„ØºÙˆ Ø«Ø¨Øªâ€ŒÙ†Ø§Ù…"))
+            return True
+        
+        await safe_delete_previous_inline(message, user_id)
+        state_manager.set_data(user_id, "first_name", parts[0])
+        state_manager.set_data(user_id, "last_name", " ".join(parts[1:]))
+        state_manager.set_state(user_id, REGISTRATION_NATIONAL_ID)
+        await send_tracked_message(message, user_id, "ðŸ’³ Ù„Ø·ÙØ§Ù‹ Ú©Ø¯ Ù…Ù„ÛŒ Û±Û° Ø±Ù‚Ù…ÛŒ Ø®ÙˆØ¯ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: 0012345678)", components=cancel_back_inline_keyboard("âŒ Ù„ØºÙˆ Ø«Ø¨Øªâ€ŒÙ†Ø§Ù…"))
+        return True
+
+    if state == REGISTRATION_NATIONAL_ID:
+        if not validate_national_id(value):
+            await send_tracked_message(message, user_id, "Ú©Ø¯ Ù…Ù„ÛŒ ÙˆØ§Ø±Ø¯Ø´Ø¯Ù‡ Ù…Ø¹ØªØ¨Ø± Ù†Ù…ÛŒâ€ŒØ¨Ø§Ø´Ø¯.\nÚ©Ø¯ Ù…Ù„ÛŒ Ø¨Ø§ÛŒØ¯ Ø¯Ù‚ÛŒÙ‚Ø§Ù‹ Û±Û° Ø±Ù‚Ù… Ø¨Ø§Ø´Ø¯. Ù„Ø·ÙØ§Ù‹ Ù…Ø¬Ø¯Ø¯Ø§Ù‹ Ø¨Ø±Ø±Ø³ÛŒ Ùˆ Ø§Ø±Ø³Ø§Ù„ Ú©Ù†ÛŒØ¯.", components=cancel_back_inline_keyboard("âŒ Ù„ØºÙˆ Ø«Ø¨Øªâ€ŒÙ†Ø§Ù…"))
+            return True
+            
+        value = normalize_digits(value) # Ø§Ù†Ú¯Ù„ÛŒØ³ÛŒ Ú©Ø±Ø¯Ù† Ø¹Ø¯Ø¯ Ù‚Ø¨Ù„ Ø§Ø² Ù¾Ø±Ø¯Ø§Ø²Ø´
+        
+        if repository.get_patient_by_national_id(value) is not None:
+            await safe_delete_previous_inline(message, user_id)
+            await message.reply("Ø§ÛŒÙ† Ú©Ø¯ Ù…Ù„ÛŒ Ù‚Ø¨Ù„Ø§Ù‹ Ø¯Ø± Ø³Ø§Ù…Ø§Ù†Ù‡ Ø«Ø¨Øª Ø´Ø¯Ù‡ Ø§Ø³Øª. Ø¯Ø± ØµÙˆØ±Øª Ø¨Ø±ÙˆØ² Ø§Ø´ØªØ¨Ø§Ù‡ØŒ Ù„Ø·ÙØ§Ù‹ Ø¨Ø§ Ù¾Ø°ÛŒØ±Ø´ Ø¯Ø±Ù…Ø§Ù†Ú¯Ø§Ù‡ ØªÙ…Ø§Ø³ Ø¨Ú¯ÛŒØ±ÛŒØ¯.", components=register_keyboard())
+            state_manager.clear_state(user_id)
+            return True
+            
+        await safe_delete_previous_inline(message, user_id)
+        state_manager.set_data(user_id, "national_id", value)
+        state_manager.set_state(user_id, REGISTRATION_PHONE)
+        await send_tracked_message(message, user_id, "ðŸ“± Ù„Ø·ÙØ§Ù‹ Ø´Ù…Ø§Ø±Ù‡ Ù…ÙˆØ¨Ø§ÛŒÙ„ Ø®ÙˆØ¯ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ù†Ù…Ø§ÛŒÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: 09123456789)", components=cancel_back_inline_keyboard("âŒ Ù„ØºÙˆ Ø«Ø¨Øªâ€ŒÙ†Ø§Ù…"))
+        return True
+
+    if state == REGISTRATION_PHONE:
+        if not validate_phone_number(value):
+            await send_tracked_message(message, user_id, "Ø´Ù…Ø§Ø±Ù‡ Ù…ÙˆØ¨Ø§ÛŒÙ„ ÙˆØ§Ø±Ø¯Ø´Ø¯Ù‡ ØµØ­ÛŒØ­ Ù†ÛŒØ³Øª.\nØ´Ù…Ø§Ø±Ù‡ Ù…ÙˆØ¨Ø§ÛŒÙ„ Ø¨Ø§ÛŒØ¯ Û±Û± Ø±Ù‚Ù… Ø¨Ø§Ø´Ø¯ Ùˆ Ø¨Ø§ 09 Ø´Ø±ÙˆØ¹ Ø´ÙˆØ¯.", components=cancel_back_inline_keyboard("âŒ Ù„ØºÙˆ Ø«Ø¨Øªâ€ŒÙ†Ø§Ù…"))
+            return True
+            
+        value = normalize_digits(value) # Ø§Ù†Ú¯Ù„ÛŒØ³ÛŒ Ú©Ø±Ø¯Ù† Ø¹Ø¯Ø¯
+        await safe_delete_previous_inline(message, user_id)
+        state_manager.set_data(user_id, "phone_number", value)
+        state_manager.set_state(user_id, REGISTRATION_GENDER)
+        
+        await message.reply("Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ù…Ù†ÙˆÛŒ Ø¨Ø§Ø²Ø´Ø¯Ù‡ Ø¯Ø± Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯:", components=gender_keyboard())
+        await send_tracked_message(message, user_id, "âš§ Ù„Ø·ÙØ§Ù‹ Ø¬Ù†Ø³ÛŒØª Ø®ÙˆØ¯ Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:", components=cancel_back_inline_keyboard("âŒ Ù„ØºÙˆ Ø«Ø¨Øªâ€ŒÙ†Ø§Ù…"))
+        return True
+
+    if state == REGISTRATION_GENDER:
+        if value not in GENDER_OPTIONS:
+            await send_tracked_message(message, user_id, "Ù„Ø·ÙØ§Ù‹ Ø¬Ù†Ø³ÛŒØª Ø®ÙˆØ¯ Ø±Ø§ Ù…Ù†Ø­ØµØ±Ø§Ù‹ Ø§Ø² Ø¯Ú©Ù…Ù‡â€ŒÙ‡Ø§ÛŒ Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯.", components=cancel_back_inline_keyboard("âŒ Ù„ØºÙˆ Ø«Ø¨Øªâ€ŒÙ†Ø§Ù…"))
+            return True
+            
+        await safe_delete_previous_inline(message, user_id)
+        state_manager.set_data(user_id, "gender", GENDER_OPTIONS[value])
+        state_manager.set_state(user_id, REGISTRATION_INSURANCE)
+        
+        await message.reply("Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ù…Ù†ÙˆÛŒ Ø¨Ø§Ø²Ø´Ø¯Ù‡ Ø¯Ø± Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯:", components=insurance_keyboard())
+        await send_tracked_message(message, user_id, "ðŸ¥ Ù„Ø·ÙØ§Ù‹ Ù†ÙˆØ¹ Ø¨ÛŒÙ…Ù‡ Ø¯Ø±Ù…Ø§Ù†ÛŒ Ø®ÙˆØ¯ Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ù†Ù…Ø§ÛŒÛŒØ¯:", components=cancel_back_inline_keyboard("âŒ Ù„ØºÙˆ Ø«Ø¨Øªâ€ŒÙ†Ø§Ù…"))
+        return True
+
+    if state == REGISTRATION_INSURANCE:
+        if value not in INSURANCE_OPTIONS:
+            await send_tracked_message(message, user_id, "Ù„Ø·ÙØ§Ù‹ Ø¨ÛŒÙ…Ù‡ Ø®ÙˆØ¯ Ø±Ø§ Ù…Ù†Ø­ØµØ±Ø§Ù‹ Ø§Ø² Ø¯Ú©Ù…Ù‡â€ŒÙ‡Ø§ÛŒ Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯.", components=cancel_back_inline_keyboard("âŒ Ù„ØºÙˆ Ø«Ø¨Øªâ€ŒÙ†Ø§Ù…"))
+            return True
+            
+        await safe_delete_previous_inline(message, user_id)
+        state_manager.set_data(user_id, "insurance", INSURANCE_OPTIONS[value])
+        data = state_manager.get_all_data(user_id)
+        user = repository.get_user_by_bale_id(user_id)
+
+        try:
+            repository.create_patient(
+                user_id=user["id"], national_id=data["national_id"], first_name=data["first_name"],
+                last_name=data["last_name"], phone_number=data["phone_number"], birth_date=None,
+                gender=data["gender"], insurance=data["insurance"]
+            )
+            repository.update_user_phone(bale_user_id=user_id, phone_number=data["phone_number"])
+        except Exception:
+            await message.reply("âŒ Ù…ØªØ£Ø³ÙØ§Ù†Ù‡ Ù‡Ù†Ú¯Ø§Ù… Ø«Ø¨Øª Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø®Ø·Ø§ÛŒÛŒ Ø±Ø® Ø¯Ø§Ø¯. Ù„Ø·ÙØ§Ù‹ Ø¯ÙˆØ¨Ø§Ø±Ù‡ ØªÙ„Ø§Ø´ Ú©Ù†ÛŒØ¯.", components=register_keyboard())
+            state_manager.clear_state(user_id)
+            return True
+
+        state_manager.clear_state(user_id)
+        await message.reply("âœ… Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø´Ù…Ø§ Ø¨Ø§ Ù…ÙˆÙÙ‚ÛŒØª Ø¯Ø± Ø³Ø§Ù…Ø§Ù†Ù‡ Ø¯Ø±Ù…Ø§Ù†Ú¯Ø§Ù‡ Ø«Ø¨Øª Ø´Ø¯.", components=main_keyboard())
+        await send_welcome_message(message, user_id)
+        return True
+
+    return await process_edit_message(message, state, value)
+
+async def handle_patient_lookup(update) -> None:
+    if isinstance(update, CallbackQuery):
+        user_id = update.user.id
+        bot = update.message.get_bot()
+        chat_id = update.message.chat_id
+    else:
+        user_id = update.author.id
+        bot = update.get_bot()
+        chat_id = update.chat_id
+
+    user = repository.get_user_by_bale_id(user_id)
+    
+    async def send_reply(text, kb):
+        await bot.send_message(chat_id, text, components=kb)
+
+    if user is None:
+        await send_reply("Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ú©Ø§Ø±Ø¨Ø±ÛŒ Ø´Ù…Ø§ Ø¯Ø± Ø³Ø§Ù…Ø§Ù†Ù‡ Ù¾ÛŒØ¯Ø§ Ù†Ø´Ø¯.", main_keyboard())
+        return
+    patient = repository.get_patient_by_user_id(user["id"])
+    if patient is None or not patient.get("national_id"):
+        await send_reply("Ù‡Ù†ÙˆØ² Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø¨ÛŒÙ…Ø§Ø± Ø´Ù…Ø§ Ú©Ø§Ù…Ù„ Ø«Ø¨Øª Ù†Ø´Ø¯Ù‡ Ø§Ø³Øª.", register_keyboard())
+        return
+
+    await send_reply(
+        "ðŸªª **Ù¾Ø±ÙˆÙØ§ÛŒÙ„ Ú©Ø§Ø±Ø¨Ø±ÛŒ Ø´Ù…Ø§ Ø¯Ø± Ø¯Ø±Ù…Ø§Ù†Ú¯Ø§Ù‡**\n\n"
+        f"ðŸ‘¤ **Ù†Ø§Ù… Ùˆ Ù†Ø§Ù… Ø®Ø§Ù†ÙˆØ§Ø¯Ú¯ÛŒ:** {patient.get('first_name', '')} {patient.get('last_name', '')}\n"
+        f"ðŸ’³ **Ú©Ø¯ Ù…Ù„ÛŒ:** {patient.get('national_id') or 'Ø«Ø¨Øª Ù†Ø´Ø¯Ù‡'}\n"
+        f"ðŸ“± **Ø´Ù…Ø§Ø±Ù‡ ØªÙ…Ø§Ø³:** {patient.get('phone_number') or 'Ø«Ø¨Øª Ù†Ø´Ø¯Ù‡'}\n"
+        f"âš§ **Ø¬Ù†Ø³ÛŒØª:** {GENDER_DISPLAY.get(patient.get('gender'), 'Ø«Ø¨Øª Ù†Ø´Ø¯Ù‡')}\n"
+        f"ðŸ¥ **Ù†ÙˆØ¹ Ø¨ÛŒÙ…Ù‡:** {INSURANCE_DISPLAY.get(patient.get('insurance'), 'Ø«Ø¨Øª Ù†Ø´Ø¯Ù‡')}\n\n"
+        "Ø¬Ù‡Øª ÙˆÛŒØ±Ø§ÛŒØ´ Ø§Ø·Ù„Ø§Ø¹Ø§ØªØŒ Ù…ÛŒâ€ŒØªÙˆØ§Ù†ÛŒØ¯ Ø§Ø² Ø¯Ú©Ù…Ù‡ Ø²ÛŒØ± Ø§Ø³ØªÙØ§Ø¯Ù‡ Ù†Ù…Ø§ÛŒÛŒØ¯ ðŸ‘‡",
+        patient_keyboard(),
+    )
+
+async def handle_patient_edit(query: CallbackQuery) -> None:
+    user_id = query.user.id
+    bot = query.message.get_bot()
+    chat_id = query.message.chat_id
+    
+    try: await query.message.delete()
+    except: pass
+
+    user = repository.get_user_by_bale_id(user_id)
+    patient = repository.get_patient_by_user_id(user["id"]) if user else None
+
+    async def send_msg(text, kb):
+        msg = await bot.send_message(chat_id, text, components=kb)
+        msg_id = get_msg_id(msg)
+        if msg_id: 
+            state_manager.set_data(user_id, "last_prompt_id", msg_id)
+            state_manager.set_data(user_id, "last_prompt_text", text)
+
+    if patient is None:
+        await send_msg("Ø§Ø¨ØªØ¯Ø§ Ø¨Ø§ÛŒØ¯ Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø¨ÛŒÙ…Ø§Ø± Ø®ÙˆØ¯ Ø±Ø§ Ø«Ø¨Øª Ú©Ù†ÛŒØ¯.", register_keyboard())
+        return
+
+    state_manager.clear_state(user_id)
+    state_manager.set_data(user_id, "edit_patient_id", patient["id"])
+    state_manager.set_state(user_id, EDIT_NAME)
+
+    await activate_text_keyboard(bot, chat_id, is_registered=True)
+
+    await send_msg(
+        "âœï¸ **Ø¨Ù‡â€ŒØ±ÙˆØ²Ø±Ø³Ø§Ù†ÛŒ Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø¨ÛŒÙ…Ø§Ø±**\n\n"
+        "ðŸ‘¤ Ù„Ø·ÙØ§Ù‹ Ù†Ø§Ù… Ùˆ Ù†Ø§Ù… Ø®Ø§Ù†ÙˆØ§Ø¯Ú¯ÛŒ Ø¬Ø¯ÛŒØ¯ Ø®ÙˆØ¯ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n"
+        "(Ù…Ø«Ø§Ù„: Ø¹Ù„ÛŒ Ø±Ø¶Ø§ÛŒÛŒ)\n\n"
+        "âš ï¸ ØªÙˆØ¬Ù‡: ØªØ§ Ù¾Ø§ÛŒØ§Ù† ØªÙ…Ø§Ù…ÛŒ Ù…Ø±Ø§Ø­Ù„ØŒ Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ù‚Ø¨Ù„ÛŒ Ø´Ù…Ø§ ØªØºÛŒÛŒØ± Ù†Ø®ÙˆØ§Ù‡Ø¯ Ú©Ø±Ø¯.",
+        edit_cancel_inline_keyboard("âŒ Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´")
+    )
+
+async def process_edit_message(message: Message, state: str, value: str) -> bool:
+    user_id = message.author.id
+    user = repository.get_user_by_bale_id(user_id)
+    patient = repository.get_patient_by_user_id(user["id"]) if user else None
+    if patient is None:
+        state_manager.clear_state(user_id)
+        return False
+
+    if state == EDIT_NAME:
+        normalized_name = " ".join(value.split())
+        parts = normalized_name.split(" ")
+        if len(parts) < 2 or not validate_full_name(normalized_name):
+            await send_tracked_message(message, user_id, "Ù†Ø§Ù… Ù†Ø§Ù…Ø¹ØªØ¨Ø± Ø§Ø³Øª. Ù„Ø·ÙØ§Ù‹ Ù†Ø§Ù… Ú©Ø§Ù…Ù„ Ø®ÙˆØ¯ Ø±Ø§ Ø¨Ø§ Ø­Ø±ÙˆÙ ÙØ§Ø±Ø³ÛŒ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯.", components=edit_cancel_inline_keyboard("âŒ Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´"))
+            return True
+            
+        await safe_delete_previous_inline(message, user_id)
+        state_manager.set_data(user_id, "edit_first_name", parts[0])
+        state_manager.set_data(user_id, "edit_last_name", " ".join(parts[1:]))
+        state_manager.set_state(user_id, EDIT_NATIONAL_ID)
+        await send_tracked_message(message, user_id, "âœ… Ù†Ø§Ù… Ø¯Ø±ÛŒØ§ÙØª Ø´Ø¯.\n\nðŸ’³ Ù„Ø·ÙØ§Ù‹ Ú©Ø¯ Ù…Ù„ÛŒ Û±Û° Ø±Ù‚Ù…ÛŒ Ø¬Ø¯ÛŒØ¯ Ø®ÙˆØ¯ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ú©Ù†ÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: 0012345678)", components=edit_back_inline_keyboard("âŒ Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´"))
+        return True
+
+    if state == EDIT_NATIONAL_ID:
+        if not validate_national_id(value):
+            await send_tracked_message(message, user_id, "Ú©Ø¯ Ù…Ù„ÛŒ Ù†Ø§Ù…Ø¹ØªØ¨Ø± Ø§Ø³Øª. Ù„Ø·ÙØ§Ù‹ Ù…Ø¬Ø¯Ø¯Ø§Ù‹ Ø¨Ø±Ø±Ø³ÛŒ Ú©Ù†ÛŒØ¯.", components=edit_back_inline_keyboard("âŒ Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´"))
+            return True
+            
+        value = normalize_digits(value) # Ø§Ù†Ú¯Ù„ÛŒØ³ÛŒ Ú©Ø±Ø¯Ù† Ø¹Ø¯Ø¯
+        await safe_delete_previous_inline(message, user_id)
+        state_manager.set_data(user_id, "edit_national_id", value)
+        state_manager.set_state(user_id, EDIT_PHONE)
+        await send_tracked_message(message, user_id, "âœ… Ú©Ø¯ Ù…Ù„ÛŒ Ø¯Ø±ÛŒØ§ÙØª Ø´Ø¯.\n\nðŸ“± Ù„Ø·ÙØ§Ù‹ Ø´Ù…Ø§Ø±Ù‡ Ù…ÙˆØ¨Ø§ÛŒÙ„ Ø¬Ø¯ÛŒØ¯ Ø®ÙˆØ¯ Ø±Ø§ ÙˆØ§Ø±Ø¯ Ù†Ù…Ø§ÛŒÛŒØ¯:\n\n(Ù…Ø«Ø§Ù„: 09123456789)", components=edit_back_inline_keyboard("âŒ Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´"))
+        return True
+
+    if state == EDIT_PHONE:
+        if not validate_phone_number(value):
+            await send_tracked_message(message, user_id, "Ø´Ù…Ø§Ø±Ù‡ Ù…ÙˆØ¨Ø§ÛŒÙ„ Ù†Ø§Ù…Ø¹ØªØ¨Ø± Ø§Ø³Øª. Ù„Ø·ÙØ§Ù‹ Ù…Ø¬Ø¯Ø¯Ø§Ù‹ Ø¨Ø±Ø±Ø³ÛŒ Ú©Ù†ÛŒØ¯.", components=edit_back_inline_keyboard("âŒ Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´"))
+            return True
+            
+        value = normalize_digits(value) # Ø§Ù†Ú¯Ù„ÛŒØ³ÛŒ Ú©Ø±Ø¯Ù† Ø¹Ø¯Ø¯
+        await safe_delete_previous_inline(message, user_id)
+        state_manager.set_data(user_id, "edit_phone_number", value)
+        state_manager.set_state(user_id, EDIT_GENDER)
+        
+        await message.reply("Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ù…Ù†ÙˆÛŒ Ø¨Ø§Ø²Ø´Ø¯Ù‡ Ø¯Ø± Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯:", components=gender_keyboard())
+        await send_tracked_message(message, user_id, "âœ… Ø´Ù…Ø§Ø±Ù‡ Ù…ÙˆØ¨Ø§ÛŒÙ„ Ø¯Ø±ÛŒØ§ÙØª Ø´Ø¯.\n\nâš§ Ù„Ø·ÙØ§Ù‹ Ø¬Ù†Ø³ÛŒØª Ø®ÙˆØ¯ Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:", components=edit_back_inline_keyboard("âŒ Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´"))
+        return True
+
+    if state == EDIT_GENDER:
+        if value not in GENDER_OPTIONS:
+            await send_tracked_message(message, user_id, "Ù„Ø·ÙØ§Ù‹ Ø¬Ù†Ø³ÛŒØª Ø®ÙˆØ¯ Ø±Ø§ Ø§Ø² Ø¯Ú©Ù…Ù‡â€ŒÙ‡Ø§ÛŒ Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯.", components=edit_back_inline_keyboard("âŒ Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´"))
+            return True
+            
+        await safe_delete_previous_inline(message, user_id)
+        state_manager.set_data(user_id, "edit_gender", GENDER_OPTIONS[value])
+        state_manager.set_state(user_id, EDIT_INSURANCE)
+        
+        await message.reply("Ù„Ø·ÙØ§Ù‹ Ø§Ø² Ù…Ù†ÙˆÛŒ Ø¨Ø§Ø²Ø´Ø¯Ù‡ Ø¯Ø± Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ú©Ù†ÛŒØ¯:", components=insurance_keyboard())
+        await send_tracked_message(message, user_id, "âœ… Ø¬Ù†Ø³ÛŒØª Ø¯Ø±ÛŒØ§ÙØª Ø´Ø¯.\n\nðŸ¥ Ù„Ø·ÙØ§Ù‹ Ù†ÙˆØ¹ Ø¨ÛŒÙ…Ù‡ Ø¯Ø±Ù…Ø§Ù†ÛŒ Ø®ÙˆØ¯ Ø±Ø§ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯:", components=edit_back_inline_keyboard("âŒ Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´"))
+        return True
+
+    if state == EDIT_INSURANCE:
+        if value not in INSURANCE_OPTIONS:
+            await send_tracked_message(message, user_id, "Ù„Ø·ÙØ§Ù‹ Ø¨ÛŒÙ…Ù‡ Ø®ÙˆØ¯ Ø±Ø§ Ø§Ø² Ø¯Ú©Ù…Ù‡â€ŒÙ‡Ø§ÛŒ Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯.", components=edit_back_inline_keyboard("âŒ Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´"))
+            return True
+            
+        await safe_delete_previous_inline(message, user_id)
+        state_manager.set_data(user_id, "edit_insurance", INSURANCE_OPTIONS[value])
+        data = state_manager.get_all_data(user_id)
+
+        try:
+            try:
+                repository.update_patient(
+                    patient_id=patient["id"], first_name=data["edit_first_name"], last_name=data["edit_last_name"],
+                    phone_number=data["edit_phone_number"], birth_date=patient.get("birth_date"),
+                    gender=data["edit_gender"], insurance=data["edit_insurance"], national_id=data["edit_national_id"]
+                )
+            except TypeError:
+                repository.update_patient(
+                    patient_id=patient["id"], first_name=data["edit_first_name"], last_name=data["edit_last_name"],
+                    phone_number=data["edit_phone_number"], birth_date=patient.get("birth_date"),
+                    gender=data["edit_gender"], insurance=data["edit_insurance"]
+                )
+            repository.update_user_phone(bale_user_id=user_id, phone_number=data["edit_phone_number"])
+        except Exception:
+            state_manager.clear_state(user_id)
+            await message.reply("âŒ Ù…ØªØ£Ø³ÙØ§Ù†Ù‡ Ø¯Ø± Ø«Ø¨Øª ØªØºÛŒÛŒØ±Ø§Øª Ø®Ø·Ø§ÛŒÛŒ Ø±Ø® Ø¯Ø§Ø¯.", components=main_keyboard())
+            await send_welcome_message(message, user_id)
+            return True
+
+        state_manager.clear_state(user_id)
+        await message.reply("âœ… Ù¾Ø±ÙˆÙØ§ÛŒÙ„ Ø´Ù…Ø§ Ø¨Ø§ Ù…ÙˆÙÙ‚ÛŒØª Ø¨Ù‡â€ŒØ±ÙˆØ²Ø±Ø³Ø§Ù†ÛŒ Ø´Ø¯.", components=main_keyboard())
+        await handle_patient_lookup(message)
+        return True
+
+    return False
+
+
+==================================================
+FILE: handlers\start.py
+==================================================
+from bale import Message
+from database.repository import repository
+from utils.helpers import send_welcome_message
+
+async def handle_start(message: Message) -> None:
+    user_id = message.author.id
+    user = repository.get_user_by_bale_id(user_id)
+
+    if user is None:
+        repository.create_user(
+            bale_user_id=user_id,
+            username=message.author.username,
+            first_name=message.author.first_name,
+            last_name=message.author.last_name,
+        )
+        
+    await send_welcome_message(message, user_id)
+
+
+==================================================
+FILE: models\appointment.py
+==================================================
+# models/appointment.py
+
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass
+class Appointment:
+
+    id: int
+
+    patient_id: int
+
+    service_id: int
+
+    appointment_date: str
+
+    start_time: str
+
+    end_time: str
+
+    gender: str
+
+    status: str = "scheduled"
+
+    reason: Optional[str] = None
+
+    notes: Optional[str] = None
+
+    created_by: Optional[int] = None
+
+    created_at: Optional[str] = None
+
+    updated_at: Optional[str] = None
+
+    service_name: Optional[str] = None
+
+    patient_first_name: Optional[str] = None
+
+    patient_last_name: Optional[str] = None
+
+    patient_phone: Optional[str] = None
+
+    patient_national_id: Optional[str] = None
+
+    patient_birth_date: Optional[str] = None
+
+    patient_gender: Optional[str] = None
+
+    patient_insurance: Optional[str] = None
+
+
+==================================================
+FILE: models\patient.py
+==================================================
+# models/patient.py
+
+from dataclasses import dataclass
+from datetime import datetime
+from typing import Optional
+
+
+@dataclass
+class Patient:
+
+    id: Optional[int] = None
+
+    user_id: Optional[int] = None
+
+    national_id: Optional[str] = None
+
+    first_name: str = ""
+
+    last_name: str = ""
+
+    phone: str = ""
+
+    birth_date: Optional[str] = None
+
+    gender: Optional[str] = None
+
+    insurance: Optional[str] = None
+
+    address: Optional[str] = None
+
+    created_at: Optional[datetime | str] = None
+
+    updated_at: Optional[datetime | str] = None
+
+    @property
+    def full_name(self) -> str:
+        return (
+            f"{self.first_name} "
+            f"{self.last_name}"
+        ).strip()
+
+
+==================================================
+FILE: models\settings.py
+==================================================
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass
+class Setting:
+
+    key: str
+
+    value: Optional[str] = None
+
+    updated_at: Optional[str] = None
+
+
+==================================================
+FILE: models\user.py
+==================================================
+from dataclasses import dataclass
+from typing import Optional
+
+
+@dataclass
+class User:
+
+    id: Optional[int] = None
+
+    bale_user_id: Optional[int] = None
+
+    username: Optional[str] = None
+
+    first_name: Optional[str] = None
+
+    last_name: Optional[str] = None
+
+    phone_number: Optional[str] = None
+
+    role: str = "patient"
+
+    is_active: int = 1
+
+    created_at: Optional[str] = None
+
+    updated_at: Optional[str] = None
+
+    @property
+    def full_name(self) -> str:
+
+        return (
+            f"{self.first_name or ''} "
+            f"{self.last_name or ''}"
+        ).strip()
+
+
+==================================================
+FILE: services\appointment_service.py
+==================================================
+# services/appointment_service.py
+
+from typing import List, Optional
+
+from database.repository import repository
+from models.appointment import Appointment
+
+
+class AppointmentService:
+
+    # =========================================================
+    # Internal Mapper
+    # =========================================================
+
+    @staticmethod
+    def _to_appointment(
+        data: Optional[dict],
+    ) -> Optional[Appointment]:
+
+        if not data:
+            return None
+
+        allowed_fields = {
+            "id",
+            "patient_id",
+            "service_id",
+            "appointment_date",
+            "start_time",
+            "end_time",
+            "gender",
+            "status",
+            "reason",
+            "notes",
+            "created_by",
+            "created_at",
+            "updated_at",
+            "service_name",
+            "patient_first_name",
+            "patient_last_name",
+            "patient_phone",
+            "patient_national_id",
+            "patient_birth_date",
+            "patient_gender",
+            "patient_insurance",
+        }
+
+        values = {
+            key: value
+            for key, value in data.items()
+            if key in allowed_fields
+        }
+
+        return Appointment(
+            **values
+        )
+
+    # =========================================================
+    # Create
+    # =========================================================
+
+    def create_appointment(
+        self,
+        patient_id: int,
+        service_id: int,
+        appointment_date: str,
+        start_time: str,
+        end_time: str,
+        gender: str,
+        status: str = "scheduled",
+        reason: Optional[str] = None,
+        notes: Optional[str] = None,
+        created_by: Optional[int] = None,
+    ) -> Optional[Appointment]:
+
+        appointment_id = (
+            repository.create_appointment_if_available(
+                patient_id=patient_id,
+                service_id=service_id,
+                appointment_date=appointment_date,
+                start_time=start_time,
+                end_time=end_time,
+                gender=gender,
+                status=status,
+                reason=reason,
+                notes=notes,
+                created_by=created_by,
+            )
+        )
+
+        if appointment_id is None:
+            return None
+
+        return self.get_appointment(
+            appointment_id
+        )
+
+    # =========================================================
+    # Get
+    # =========================================================
+
+    def get_appointment(
+        self,
+        appointment_id: int,
+    ) -> Optional[Appointment]:
+
+        data = repository.get_appointment_by_id(
+            appointment_id
+        )
+
+        return self._to_appointment(
+            data
+        )
+
+    # =========================================================
+    # Patient Appointments
+    # =========================================================
+
+    def get_patient_appointments(
+        self,
+        patient_id: int,
+    ) -> List[Appointment]:
+
+        records = repository.get_patient_appointments(
+            patient_id=patient_id,
+        )
+
+        return [
+            self._to_appointment(record)
+            for record in records
+            if self._to_appointment(record)
+            is not None
+        ]
+
+    # =========================================================
+    # Active Appointment
+    # =========================================================
+
+    def get_active_appointment(
+        self,
+        service_id: int,
+        appointment_date: str,
+        start_time: str,
+        gender: str,
+    ) -> Optional[Appointment]:
+
+        data = repository.get_active_appointment(
+            service_id=service_id,
+            appointment_date=appointment_date,
+            start_time=start_time,
+            gender=gender,
+        )
+
+        return self._to_appointment(
+            data
+        )
+
+    # =========================================================
+    # Confirm
+    # =========================================================
+
+    def confirm_appointment(
+        self,
+        appointment_id: int,
+    ) -> Optional[Appointment]:
+
+        appointment = self.get_appointment(
+            appointment_id
+        )
+
+        if appointment is None:
+            return None
+
+        if appointment.status != "scheduled":
+            return appointment
+
+        repository.update_appointment_status(
+            appointment_id=appointment_id,
+            status="scheduled",
+        )
+
+        return self.get_appointment(
+            appointment_id
+        )
+
+    # =========================================================
+    # Cancel
+    # =========================================================
+
+    def cancel_appointment(
+        self,
+        appointment_id: int,
+    ) -> Optional[Appointment]:
+
+        appointment = self.get_appointment(
+            appointment_id
+        )
+
+        if appointment is None:
+            return None
+
+        if appointment.status in (
+            "cancelled",
+            "completed",
+            "no_show",
+        ):
+            return appointment
+
+        repository.update_appointment_status(
+            appointment_id=appointment_id,
+            status="cancelled",
+        )
+
+        return self.get_appointment(
+            appointment_id
+        )
+
+    # =========================================================
+    # Complete
+    # =========================================================
+
+    def complete_appointment(
+        self,
+        appointment_id: int,
+    ) -> Optional[Appointment]:
+
+        appointment = self.get_appointment(
+            appointment_id
+        )
+
+        if appointment is None:
+            return None
+
+        if appointment.status in (
+            "cancelled",
+            "completed",
+            "no_show",
+        ):
+            return appointment
+
+        repository.update_appointment_status(
+            appointment_id=appointment_id,
+            status="completed",
+        )
+
+        return self.get_appointment(
+            appointment_id
+        )
+
+    # =========================================================
+    # No Show
+    # =========================================================
+
+    def mark_no_show(
+        self,
+        appointment_id: int,
+    ) -> Optional[Appointment]:
+
+        appointment = self.get_appointment(
+            appointment_id
+        )
+
+        if appointment is None:
+            return None
+
+        if appointment.status in (
+            "cancelled",
+            "completed",
+            "no_show",
+        ):
+            return appointment
+
+        repository.update_appointment_status(
+            appointment_id=appointment_id,
+            status="no_show",
+        )
+
+        return self.get_appointment(
+            appointment_id
+        )
+
+
+appointment_service = AppointmentService()
+
+
+==================================================
+FILE: services\patient_service.py
+==================================================
+# services/patient_service.py
+
+from typing import Any, Optional
+
+from database.repository import repository
+from models.patient import Patient
+
+
+class PatientService:
+
+    # =========================================================
+    # Internal Mapper
+    # =========================================================
+
+    @staticmethod
+    def _to_patient(
+        data: Optional[dict],
+    ) -> Optional[Patient]:
+
+        if not data:
+            return None
+
+        return Patient(
+            id=data.get("id"),
+            user_id=data.get("user_id"),
+            national_id=data.get("national_id"),
+            first_name=data.get(
+                "first_name",
+                "",
+            ),
+            last_name=data.get(
+                "last_name",
+                "",
+            ),
+            phone=data.get(
+                "phone",
+                data.get(
+                    "phone_number",
+                    "",
+                ),
+            ),
+            birth_date=data.get(
+                "birth_date"
+            ),
+            gender=data.get(
+                "gender"
+            ),
+            insurance=data.get(
+                "insurance"
+            ),
+            address=data.get(
+                "address"
+            ),
+            created_at=data.get(
+                "created_at"
+            ),
+            updated_at=data.get(
+                "updated_at"
+            ),
+        )
+
+    # =========================================================
+    # Create
+    # =========================================================
+
+    def create_patient(
+        self,
+        user_id: Optional[int],
+        first_name: str,
+        last_name: str,
+        phone: str,
+        national_id: Optional[str] = None,
+        birth_date: Optional[str] = None,
+        gender: Optional[str] = None,
+        insurance: Optional[str] = None,
+        address: Optional[str] = None,
+    ) -> Optional[Patient]:
+
+        patient_id = repository.create_patient(
+            user_id=user_id,
+            national_id=national_id,
+            first_name=first_name,
+            last_name=last_name,
+            phone_number=phone,
+            birth_date=birth_date,
+            gender=gender,
+            insurance=insurance,
+            address=address,
+        )
+
+        return self.get_patient(
+            patient_id
+        )
+
+    # =========================================================
+    # Get
+    # =========================================================
+
+    def get_patient(
+        self,
+        patient_id: int,
+    ) -> Optional[Patient]:
+
+        data = repository.get_patient_by_id(
+            patient_id
+        )
+
+        return self._to_patient(
+            data
+        )
+
+    # =========================================================
+    # Get By User
+    # =========================================================
+
+    def get_patient_by_user_id(
+        self,
+        user_id: int,
+    ) -> Optional[Patient]:
+
+        data = repository.get_patient_by_user_id(
+            user_id
+        )
+
+        return self._to_patient(
+            data
+        )
+
+    # =========================================================
+    # Get By National ID
+    # =========================================================
+
+    def get_patient_by_national_id(
+        self,
+        national_id: str,
+    ) -> Optional[Patient]:
+
+        data = repository.get_patient_by_national_id(
+            national_id
+        )
+
+        return self._to_patient(
+            data
+        )
+
+    # =========================================================
+    # Update
+    # =========================================================
+
+    def update_patient(
+        self,
+        patient_id: int,
+        **fields: Any,
+    ) -> Optional[Patient]:
+
+        current = repository.get_patient_by_id(
+            patient_id
+        )
+
+        if current is None:
+            return None
+
+        first_name = fields.get(
+            "first_name",
+            current.get("first_name", ""),
+        )
+
+        last_name = fields.get(
+            "last_name",
+            current.get("last_name", ""),
+        )
+
+        phone = fields.get(
+            "phone",
+            fields.get(
+                "phone_number",
+                current.get(
+                    "phone_number",
+                    "",
+                ),
+            ),
+        )
+
+        birth_date = fields.get(
+            "birth_date",
+            current.get("birth_date"),
+        )
+
+        gender = fields.get(
+            "gender",
+            current.get("gender"),
+        )
+
+        insurance = fields.get(
+            "insurance",
+            current.get("insurance"),
+        )
+
+        address = fields.get(
+            "address",
+            current.get("address"),
+        )
+
+        repository.update_patient(
+            patient_id=patient_id,
+            first_name=first_name,
+            last_name=last_name,
+            phone_number=phone,
+            birth_date=birth_date,
+            gender=gender,
+            insurance=insurance,
+            address=address,
+        )
+
+        return self.get_patient(
+            patient_id
+        )
+
+    # =========================================================
+    # Delete
+    # =========================================================
+
+    def delete_patient(
+        self,
+        patient_id: int,
+    ) -> bool:
+
+        patient = repository.get_patient_by_id(
+            patient_id
+        )
+
+        if patient is None:
+            return False
+
+        try:
+            repository.delete_appointment_by_patient(
+                patient_id
+            )
+
+            repository.delete_patient(
+                patient_id
+            )
+
+            return True
+
+        except Exception:
+            return False
+
+
+patient_service = PatientService()
+
+
+==================================================
+FILE: services\schedule_service.py
+==================================================
+from datetime import date, timedelta
+from typing import Optional
+from database.repository import repository
+
+WORKING_WEEKDAYS = {5, 6, 0, 1, 2, 3}
+
+class ScheduleService:
+    @staticmethod
+    def is_friday(appointment_date: str) -> bool:
+        try:
+            return date.fromisoformat(appointment_date).weekday() == 4
+        except (TypeError, ValueError):
+            return False
+
+    def get_services(self, gender: Optional[str] = None, days_ahead: int = 7) -> list[dict]:
+        return repository.get_services()
+
+    def get_service_dates(self, service_id: int, gender: str, days_ahead: int = 7) -> list[str]:
+        today = date.today()
+        result = []
+        for offset in range(1, days_ahead + 1):
+            current_date = today + timedelta(days=offset)
+            if current_date.weekday() not in WORKING_WEEKDAYS:
+                continue
+            result.append(current_date.isoformat())
+        return result
+
+    def get_available_dates(self, service_id: int, gender: str, days_ahead: int = 7) -> list[str]:
+        return self.get_service_dates(service_id=service_id, gender=gender, days_ahead=days_ahead)
+
+    def get_times(self, service_id: int, appointment_date: str, gender: str) -> list[dict]:
+        if self.is_friday(appointment_date):
+            return []
+        
+        # Ø§ÛŒÙ† Ø®Ø· Ù…Ø³ØªÙ‚ÛŒÙ…Ø§Ù‹ Ø²Ù…Ø§Ù†â€ŒÙ‡Ø§ÛŒ Ù…Ø±Ø¨ÙˆØ· Ø¨Ù‡ Ø¬Ù†Ø³ÛŒØª Ø±Ø§ Ø§Ø² Ø¯ÛŒØªØ§Ø¨ÛŒØ³ Ù…ÛŒâ€ŒÚ¯ÛŒØ±Ø¯ Ùˆ Ù…Ø´Ú©Ù„Ù ÙÛŒÙ„ØªØ±ÛŒÙ†Ú¯ Ø§Ø´ØªØ¨Ø§Ù‡ Ú©Ø§Ù…Ù„Ø§ Ø¨Ø±Ø·Ø±Ù Ø´Ø¯Ù‡ Ø§Ø³Øª
+        return repository.get_available_times(service_id=service_id, appointment_date=appointment_date, gender=gender)
+
+    def get_available_times(self, service_id: int, appointment_date: str, gender: str) -> list[dict]:
+        return self.get_times(service_id=service_id, appointment_date=appointment_date, gender=gender)
+
+    def is_slot_available(self, service_id: int, appointment_date: str, start_time: str, gender: str) -> bool:
+        if self.is_friday(appointment_date):
+            return False
+        times = self.get_times(service_id=service_id, appointment_date=appointment_date, gender=gender)
+        for item in times:
+            if str(item.get("start_time")) != str(start_time):
+                continue
+            # Ø¨Ø±Ø±Ø³ÛŒ Ù¾Ø± Ø´Ø¯Ù† Ø¸Ø±ÙÛŒØª
+            return int(item.get("booked_count", 0) or 0) < int(item.get("capacity", 1) or 1)
+        return False
+
+schedule_service = ScheduleService()
+
+
+==================================================
+FILE: utils\helpers.py
+==================================================
+import jdatetime
+
+PERSIAN_WEEKDAYS = {
+    0: "Ø´Ù†Ø¨Ù‡", 1: "ÛŒÚ©Ø´Ù†Ø¨Ù‡", 2: "Ø¯ÙˆØ´Ù†Ø¨Ù‡", 3: "Ø³Ù‡â€ŒØ´Ù†Ø¨Ù‡",
+    4: "Ú†Ù‡Ø§Ø±Ø´Ù†Ø¨Ù‡", 5: "Ù¾Ù†Ø¬Ø´Ù†Ø¨Ù‡", 6: "Ø¬Ù…Ø¹Ù‡",
+}
+
+def get_msg_id(msg):
+    if not msg: return None
+    if isinstance(msg, dict):
+        return msg.get("message_id") or msg.get("id")
+    return getattr(msg, "message_id", getattr(msg, "id", None))
+
+def get_service_display_name(service_name: str, gender: str = None, short_name: bool = False) -> str:
+    if not service_name:
+        return "Ø®Ø¯Ù…Øª"
+    
+    display = service_name
+    
+    if "Ø¯Ú©ØªØ± Ú¯Ø±Ø§ÛŒÙ„ÛŒ" in display and "ÙˆÛŒØ²ÛŒØª" not in display:
+        display = display.replace(" Ø¯Ú©ØªØ± Ú¯Ø±Ø§ÛŒÙ„ÛŒ", "").replace("Ø¯Ú©ØªØ± Ú¯Ø±Ø§ÛŒÙ„ÛŒ", "").strip()
+    
+    if not short_name:
+        append_doctor = ["Ø·Ø¨ Ø³ÙˆØ²Ù†ÛŒ", "Ø§Ù…Ø¨Ø¯ÛŒÙ†Ú¯(Ù„Ø§ØºØ±ÛŒ)", "Ø§Ø³Ú©Ù† Ú©Ù„ Ø¨Ø¯Ù†", "ØºÙ…Ø² Ùˆ Ø±Ú¯ Ú¯ÛŒØ±ÛŒ"]
+        if display in append_doctor:
+            display += " Ø¯Ú©ØªØ± Ú¯Ø±Ø§ÛŒÙ„ÛŒ"
+    
+    base_for_gender = display.replace(" Ø¯Ú©ØªØ± Ú¯Ø±Ø§ÛŒÙ„ÛŒ", "")
+    if gender == "male" and base_for_gender in ["Ø¨Ø§Ø¯Ú©Ø´", "Ø­Ø¬Ø§Ù…Øª Ø¹Ø§Ù…", "Ø²Ø§Ù„ÙˆØ¯Ø±Ù…Ø§Ù†ÛŒ"]:
+        display += " Ø¢Ù‚Ø§ÛŒØ§Ù†"
+    elif gender == "female" and base_for_gender in ["Ø¨Ø§Ø¯Ú©Ø´", "Ø­Ø¬Ø§Ù…Øª Ø¹Ø§Ù…", "Ø²Ø§Ù„ÙˆØ¯Ø±Ù…Ø§Ù†ÛŒ"]:
+        display += " Ø¨Ø§Ù†ÙˆØ§Ù†"
+        
+    return display
+
+def to_jalali_date(date_string: str) -> str:
+    try:
+        year, month, day = map(int, date_string.split("-"))
+        jalali = jdatetime.date.fromgregorian(year=year, month=month, day=day)
+        return jalali.strftime("%Y/%m/%d")
+    except (ValueError, TypeError):
+        return date_string
+
+def to_persian_date(date_string: str) -> str:
+    # Ø®Ø±ÙˆØ¬ÛŒ Ù…Ø³ØªÙ‚ÛŒÙ… Ø¨Ø§ Ø§Ø¹Ø¯Ø§Ø¯ Ø§Ù†Ú¯Ù„ÛŒØ³ÛŒ Ø§Ø³ØªØ§Ù†Ø¯Ø§Ø±Ø¯
+    return to_jalali_date(date_string)
+
+def to_short_persian_date(date_string: str) -> str:
+    try:
+        year, month, day = map(int, date_string.split("-"))
+        jalali = jdatetime.date.fromgregorian(year=year, month=month, day=day)
+        short_year = jalali.year % 100
+        return f"{short_year:02d}/{jalali.month:02d}/{jalali.day:02d}"
+    except (ValueError, TypeError):
+        return date_string
+
+def to_date_label(date_string: str) -> str:
+    try:
+        year, month, day = map(int, date_string.split("-"))
+        jalali = jdatetime.date.fromgregorian(year=year, month=month, day=day)
+        weekday = PERSIAN_WEEKDAYS[jalali.weekday()]
+        return f"{weekday} - {to_short_persian_date(date_string)}"
+    except (ValueError, TypeError, KeyError):
+        return date_string
+
+async def activate_text_keyboard(bot, chat_id, is_registered=True):
+    from utils.keyboards import main_keyboard, register_keyboard
+    kb = main_keyboard() if is_registered else register_keyboard()
+    await bot.send_message(chat_id, "âŒ¨ï¸ Ù„Ø·ÙØ§Ù‹ Ù…Ù‚Ø§Ø¯ÛŒØ± Ø±Ø§ ØªØ§ÛŒÙ¾ Ú©Ù†ÛŒØ¯ ðŸ‘‡", components=kb)
+
+async def send_welcome_message(target, user_id):
+    from database.repository import repository
+    from utils.keyboards import main_keyboard, register_keyboard
+    
+    user = repository.get_user_by_bale_id(user_id)
+    patient = repository.get_patient_by_user_id(user["id"]) if user else None
+
+    if patient and patient.get("national_id"):
+        text = (
+            "ðŸŒŸ Ø¨Ù‡ Ø³Ø§Ù…Ø§Ù†Ù‡ Ù†ÙˆØ¨Øªâ€ŒØ¯Ù‡ÛŒ Ø¯Ø±Ù…Ø§Ù†Ú¯Ø§Ù‡ Ø·Ø¨ Ø³Ù†ØªÛŒ Ø¯Ú©ØªØ± ÙˆÙ„ÛŒâ€ŒØ§Ù„Ù„Ù‡ Ú¯Ø±Ø§ÛŒÙ„ÛŒ Ù…Ù„Ú© Ø®ÙˆØ´ Ø¢Ù…Ø¯ÛŒØ¯. ðŸŒŸ\n\n"
+            "Ø¨Ø±Ø§ÛŒ Ø¯Ø±ÛŒØ§ÙØª Ù†ÙˆØ¨ØªØŒ Ù„Ø·ÙØ§Ù‹ Ú¯Ø²ÛŒÙ†Ù‡ Â«Ø¯Ø±ÛŒØ§ÙØª Ù†ÙˆØ¨ØªÂ» Ø±Ø§ Ø§Ø² Ù…Ù†ÙˆÛŒ Ù¾Ø§ÛŒÛŒÙ† ØµÙØ­Ù‡ Ø§Ù†ØªØ®Ø§Ø¨ Ú©Ù†ÛŒØ¯."
+        )
+        if hasattr(target, "message") and target.message:
+            await target.message.get_bot().send_message(target.message.chat_id, text, components=main_keyboard())
+        else:
+            await target.reply(text, components=main_keyboard())
+    else:
+        text = (
+            "ðŸŒŸ Ø¨Ù‡ Ø³Ø§Ù…Ø§Ù†Ù‡ Ù†ÙˆØ¨Øªâ€ŒØ¯Ù‡ÛŒ Ø¯Ø±Ù…Ø§Ù†Ú¯Ø§Ù‡ Ø·Ø¨ Ø³Ù†ØªÛŒ Ø¯Ú©ØªØ± ÙˆÙ„ÛŒâ€ŒØ§Ù„Ù„Ù‡ Ú¯Ø±Ø§ÛŒÙ„ÛŒ Ù…Ù„Ú© Ø®ÙˆØ´ Ø¢Ù…Ø¯ÛŒØ¯. ðŸŒŸ\n\n"
+            "Ø¨Ø±Ø§ÛŒ Ø¯Ø±ÛŒØ§ÙØª Ù†ÙˆØ¨ØªØŒ Ø§Ø¨ØªØ¯Ø§ Ø¨Ø§ÛŒØ¯ Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø´Ù…Ø§ Ø¯Ø± Ø³Ø§Ù…Ø§Ù†Ù‡ Ø«Ø¨Øª Ø´ÙˆØ¯.\n\n"
+            "Ù„Ø·ÙØ§Ù‹ Ø±ÙˆÛŒ Ø¯Ú©Ù…Ù‡ Ø²ÛŒØ± Ú©Ù„ÛŒÚ© Ú©Ù†ÛŒØ¯ ðŸ‘‡"
+        )
+        if hasattr(target, "message") and target.message:
+            await target.message.get_bot().send_message(target.message.chat_id, text, components=register_keyboard())
+        else:
+            await target.reply(text, components=register_keyboard())
+
+
+==================================================
+FILE: utils\keyboards.py
+==================================================
+from datetime import date
+from bale import MenuKeyboardButton, MenuKeyboardMarkup, InlineKeyboardButton, InlineKeyboardMarkup
+from utils.helpers import to_date_label, get_service_display_name
+
+def main_keyboard():
+    keyboard = MenuKeyboardMarkup()
+    keyboard.add(MenuKeyboardButton("ðŸ“… Ø¯Ø±ÛŒØ§ÙØª Ù†ÙˆØ¨Øª"), row=1)
+    keyboard.add(MenuKeyboardButton("ðŸ“‹ Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§ÛŒ Ù…Ù†"), row=1)
+    keyboard.add(MenuKeyboardButton("ðŸ‘¤ Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø¨ÛŒÙ…Ø§Ø±"), row=2)
+    keyboard.add(MenuKeyboardButton("ðŸ¥ Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø¯Ø±Ù…Ø§Ù†Ú¯Ø§Ù‡"), row=2)
+    return keyboard
+
+def register_keyboard():
+    keyboard = MenuKeyboardMarkup()
+    keyboard.add(MenuKeyboardButton("ðŸ“ Ø«Ø¨Øª Ø§Ø·Ù„Ø§Ø¹Ø§Øª"), row=1)
+    return keyboard
+
+# ==========================================
+# Inline Keyboards
+# ==========================================
+
+def cancel_only_inline_keyboard(text="âŒ Ù„ØºÙˆ Ø«Ø¨Øªâ€ŒÙ†Ø§Ù…"):
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton(text, callback_data="register_cancel"), row=1)
+    return keyboard
+
+def cancel_back_inline_keyboard(text="âŒ Ù„ØºÙˆ Ø«Ø¨Øªâ€ŒÙ†Ø§Ù…"):
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("ðŸ”™ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ù…Ø±Ø­Ù„Ù‡ Ù‚Ø¨Ù„", callback_data="register_back"), row=1)
+    keyboard.add(InlineKeyboardButton(text, callback_data="register_cancel"), row=2)
+    return keyboard
+
+def edit_cancel_inline_keyboard(text="âŒ Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´"):
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton(text, callback_data="patient:edit_cancel"), row=1)
+    return keyboard
+
+def edit_back_inline_keyboard(text="âŒ Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´"):
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("ðŸ”™ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ù…Ø±Ø­Ù„Ù‡ Ù‚Ø¨Ù„", callback_data="edit_back"), row=1)
+    keyboard.add(InlineKeyboardButton(text, callback_data="patient:edit_cancel"), row=2)
+    return keyboard
+
+def other_cancel_inline_keyboard(text=""):
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ø§Ù†ØªØ®Ø§Ø¨ ÙØ±Ø¯", callback_data="booking_back:target"), row=1)
+    return keyboard
+
+def other_back_inline_keyboard(text=""):
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("ðŸ”™ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ù…Ø±Ø­Ù„Ù‡ Ù‚Ø¨Ù„", callback_data="other_back"), row=1)
+    keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ø§Ù†ØªØ®Ø§Ø¨ ÙØ±Ø¯", callback_data="booking_back:target"), row=2)
+    return keyboard
+
+def other_patient_confirm_keyboard():
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("ðŸ“… Ø§Ù†ØªØ®Ø§Ø¨ Ø®Ø¯Ù…Øª Ùˆ Ø¯Ø±ÛŒØ§ÙØª Ù†ÙˆØ¨Øª", callback_data="booking_other:proceed"), row=1)
+    keyboard.add(InlineKeyboardButton("âœï¸ ÙˆÛŒØ±Ø§ÛŒØ´ Ø§Ø·Ù„Ø§Ø¹Ø§Øª", callback_data="booking_other:edit"), row=2)
+    keyboard.add(InlineKeyboardButton("ðŸ”™ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ù…Ø±Ø­Ù„Ù‡ Ù‚Ø¨Ù„", callback_data="other_back"), row=3)
+    return keyboard
+
+def edit_other_cancel_inline_keyboard():
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("âŒ Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´", callback_data="booking_other:cancel_edit"), row=1)
+    return keyboard
+
+def edit_other_back_inline_keyboard():
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("ðŸ”™ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ù…Ø±Ø­Ù„Ù‡ Ù‚Ø¨Ù„", callback_data="edit_other_back"), row=1)
+    keyboard.add(InlineKeyboardButton("âŒ Ù„ØºÙˆ ÙˆÛŒØ±Ø§ÛŒØ´", callback_data="booking_other:cancel_edit"), row=2)
+    return keyboard
+
+# ==========================================
+# Main System Keyboards
+# ==========================================
+
+def patient_keyboard():
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("âœï¸ ÙˆÛŒØ±Ø§ÛŒØ´ Ø§Ø·Ù„Ø§Ø¹Ø§Øª", callback_data="patient:edit"), row=1)
+    keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ù…Ù†ÙˆÛŒ Ø§ØµÙ„ÛŒ", callback_data="booking_back:home"), row=2)
+    return keyboard
+
+def gender_keyboard():
+    keyboard = MenuKeyboardMarkup()
+    keyboard.add(MenuKeyboardButton("Ø¢Ù‚Ø§"), row=1)
+    keyboard.add(MenuKeyboardButton("Ø®Ø§Ù†Ù…"), row=1)
+    return keyboard
+
+def insurance_keyboard():
+    keyboard = MenuKeyboardMarkup()
+    keyboard.add(MenuKeyboardButton("Ø³Ù„Ø§Ù…Øª"), row=1)
+    keyboard.add(MenuKeyboardButton("ØªØ£Ù…ÛŒÙ† Ø§Ø¬ØªÙ…Ø§Ø¹ÛŒ"), row=1)
+    keyboard.add(MenuKeyboardButton("Ù†ÛŒØ±ÙˆÙ‡Ø§ÛŒ Ù…Ø³Ù„Ø­"), row=2)
+    keyboard.add(MenuKeyboardButton("Ø¨Ø¯ÙˆÙ† Ø¨ÛŒÙ…Ù‡"), row=2)
+    return keyboard
+
+def booking_target_keyboard():
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("ðŸ‘¤ Ø¨Ø±Ø§ÛŒ Ø®ÙˆØ¯Ù…", callback_data="booking_target:self"), row=1)
+    keyboard.add(InlineKeyboardButton("ðŸ‘¥ Ø¨Ø±Ø§ÛŒ Ø´Ø®Øµ Ø¯ÛŒÚ¯Ø±", callback_data="booking_target:other"), row=1)
+    keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ù…Ù†ÙˆÛŒ Ø§ØµÙ„ÛŒ", callback_data="booking_back:home"), row=2)
+    return keyboard
+
+def clinic_info_keyboard():
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ù…Ù†ÙˆÛŒ Ø§ØµÙ„ÛŒ", callback_data="booking_back:home"), row=1)
+    return keyboard
+
+def booking_services_keyboard(services):
+    keyboard = InlineKeyboardMarkup()
+    services = services or []
+    if not services:
+        keyboard.add(InlineKeyboardButton("âŒ Ø®Ø¯Ù…ØªÛŒ ÙˆØ¬ÙˆØ¯ Ù†Ø¯Ø§Ø±Ø¯", callback_data="ignore:full"), row=1)
+        keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ù…Ù†ÙˆÛŒ Ø§ØµÙ„ÛŒ", callback_data="booking_back:home"), row=2)
+        return keyboard
+
+    for index, service in enumerate(services, start=1):
+        row = ((index - 1) // 2) + 1
+        keyboard.add(InlineKeyboardButton(text=service["name"], callback_data=f"booking_service:{service['id']}"), row=row)
+
+    service_rows = ((len(services) - 1) // 2) + 1
+    keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ø§Ù†ØªØ®Ø§Ø¨ ÙØ±Ø¯", callback_data="booking_back:target"), row=service_rows + 1)
+    return keyboard
+
+def booking_gender_inline_keyboard(back_to="services"):
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("ðŸ‘¨ Ø¢Ù‚Ø§", callback_data="booking_gender:male"), row=1)
+    keyboard.add(InlineKeyboardButton("ðŸ‘© Ø®Ø§Ù†Ù…", callback_data="booking_gender:female"), row=1)
+    keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª", callback_data=f"booking_back:{back_to}"), row=2)
+    return keyboard
+
+def booking_dates_keyboard(dates, service_id=None, gender=None, availability=None):
+    keyboard = InlineKeyboardMarkup()
+    dates = dates or []
+    availability = availability or {}
+    row = 1
+
+    for date_string in dates:
+        try:
+            target_date = date.fromisoformat(str(date_string))
+        except (TypeError, ValueError):
+            continue
+        if target_date.weekday() == 4:
+            continue
+
+        status = availability.get(str(date_string), True)
+        if isinstance(status, dict): has_available_time = status.get("available", False)
+        else: has_available_time = bool(status)
+
+        if has_available_time:
+            keyboard.add(InlineKeyboardButton(text=f"ðŸ“… {to_date_label(str(date_string))}", callback_data=f"booking_date:{date_string}"), row=row)
+        else:
+            keyboard.add(InlineKeyboardButton(text=f"âŒ {to_date_label(str(date_string))} (ØªÚ©Ù…ÛŒÙ„ Ø´Ø¯Ù‡)", callback_data="ignore:full"), row=row)
+        row += 1
+
+    keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ø®Ø¯Ù…Ø§Øª", callback_data="booking_back:services"), row=row)
+    return keyboard
+
+def booking_times_keyboard(times, appointment_date):
+    keyboard = InlineKeyboardMarkup()
+    valid_times = [item for item in (times or []) if item.get("start_time")]
+
+    if not valid_times:
+        keyboard.add(InlineKeyboardButton("âŒ Ø³Ø§Ø¹ØªÛŒ ÙˆØ¬ÙˆØ¯ Ù†Ø¯Ø§Ø±Ø¯", callback_data="ignore:full"), row=1)
+        keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ ØªØ§Ø±ÛŒØ®â€ŒÙ‡Ø§", callback_data="booking_back:dates"), row=2)
+        return keyboard
+
+    for index, item in enumerate(valid_times, start=1):
+        start_time = item["start_time"]
+        booked_count = int(item.get("booked_count", 0))
+        capacity = int(item.get("capacity", 1))
+        available = (booked_count < capacity)
+        row = ((index - 1) // 2) + 1
+
+        if available:
+            keyboard.add(InlineKeyboardButton(text=f"ðŸ• {start_time}", callback_data=f"booking_time:{appointment_date}:{start_time}"), row=row)
+        else:
+            keyboard.add(InlineKeyboardButton(text=f"âŒ {start_time} (Ø±Ø²Ø±Ùˆ)", callback_data="ignore:full"), row=row)
+
+    back_row = ((len(valid_times) - 1) // 2) + 2
+    keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ ØªØ§Ø±ÛŒØ®â€ŒÙ‡Ø§", callback_data="booking_back:dates"), row=back_row)
+    return keyboard
+
+def booking_checkout_keyboard():
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("âœ… ØªØ£ÛŒÛŒØ¯ Ùˆ Ø«Ø¨Øª Ù†Ù‡Ø§ÛŒÛŒ", callback_data="booking_checkout:confirm"), row=1)
+    keyboard.add(InlineKeyboardButton("âŒ Ø§Ù†ØµØ±Ø§Ù", callback_data="booking_checkout:cancel"), row=1)
+    return keyboard
+
+def booking_confirmation_keyboard():
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("ðŸ“‹ Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§ÛŒ Ù…Ù†", callback_data="appointments:menu"), row=1)
+    keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ù…Ù†ÙˆÛŒ Ø§ØµÙ„ÛŒ", callback_data="appointments:home"), row=2)
+    return keyboard
+
+def back_to_services_keyboard():
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ù…Ù†ÙˆÛŒ Ø®Ø¯Ù…Ø§Øª", callback_data="booking_back:services"), row=1)
+    keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ù…Ù†ÙˆÛŒ Ø§ØµÙ„ÛŒ", callback_data="booking_back:home"), row=2)
+    return keyboard
+
+def appointments_menu_keyboard():
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("ðŸ“‹ Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§ÛŒ Ø¬Ø§Ø±ÛŒ", callback_data="appointments:current"), row=1)
+    keyboard.add(InlineKeyboardButton("ðŸ“œ ØªØ§Ø±ÛŒØ®Ú†Ù‡ Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§", callback_data="appointments:history"), row=2)
+    keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ù…Ù†ÙˆÛŒ Ø§ØµÙ„ÛŒ", callback_data="appointments:home"), row=3)
+    return keyboard
+
+def empty_appointments_keyboard():
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("ðŸ“… Ø¯Ø±ÛŒØ§ÙØª Ù†ÙˆØ¨Øª", callback_data="booking_start_inline"), row=1)
+    keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ù…Ù†ÙˆÛŒ Ø§ØµÙ„ÛŒ", callback_data="appointments:home"), row=2)
+    return keyboard
+
+def appointment_list_keyboard(appointments, prefix):
+    keyboard = InlineKeyboardMarkup()
+    appointments = appointments or []
+
+    if not appointments:
+        keyboard.add(InlineKeyboardButton("âŒ Ù†ÙˆØ¨ØªÛŒ ÙˆØ¬ÙˆØ¯ Ù†Ø¯Ø§Ø±Ø¯", callback_data="ignore:full"), row=1)
+        keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª", callback_data="appointments:menu"), row=2)
+        return keyboard
+
+    for index, appointment in enumerate(appointments, start=1):
+        service_name = get_service_display_name(appointment.get("service_name", ""), appointment.get("gender"), short_name=True)
+        appointment_date = appointment.get("appointment_date")
+        start_time = appointment.get("start_time", "")
+
+        keyboard.add(InlineKeyboardButton(text=f"{service_name} | {to_date_label(appointment_date)} | {start_time}", callback_data=f"{prefix}:{appointment.get('id')}"), row=index)
+
+    keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª", callback_data="appointments:menu"), row=len(appointments) + 1)
+    return keyboard
+
+def appointment_detail_keyboard(appointment_id, can_cancel=True):
+    keyboard = InlineKeyboardMarkup()
+    row = 1
+    if can_cancel:
+        keyboard.add(InlineKeyboardButton("âŒ Ù„ØºÙˆ Ù†ÙˆØ¨Øª", callback_data=f"appointment_cancel:{appointment_id}"), row=row)
+        row += 1
+    keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§", callback_data="appointments:current"), row=row)
+    return keyboard
+
+def cancel_confirmation_keyboard(appointment_id):
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("âœ… Ø¨Ù„Ù‡ØŒ Ù„ØºÙˆ Ú©Ù†", callback_data=f"appointment_cancel_confirm:{appointment_id}"), row=1)
+    keyboard.add(InlineKeyboardButton("âŒ Ø®ÛŒØ±ØŒ Ø¨Ø§Ø²Ú¯Ø´Øª", callback_data=f"appointment_cancel_abort:{appointment_id}"), row=1)
+    return keyboard
+
+def cancel_success_inline_keyboard():
+    keyboard = InlineKeyboardMarkup()
+    keyboard.add(InlineKeyboardButton("ðŸ“‹ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ù†ÙˆØ¨Øªâ€ŒÙ‡Ø§ÛŒ Ù…Ù†", callback_data="appointments:menu"), row=1)
+    keyboard.add(InlineKeyboardButton("â†©ï¸ Ø¨Ø§Ø²Ú¯Ø´Øª Ø¨Ù‡ Ù…Ù†ÙˆÛŒ Ø§ØµÙ„ÛŒ", callback_data="appointments:home"), row=2)
+    return keyboard
+
+
+==================================================
+FILE: utils\logger.py
+==================================================
+import logging
+import sys
+
+
+def setup_logger() -> logging.Logger:
+
+    logger = logging.getLogger(
+        "clinic_bot"
+    )
+
+    if logger.handlers:
+        return logger
+
+    logger.setLevel(
+        logging.INFO
+    )
+
+    handler = logging.StreamHandler(
+        sys.stdout
+    )
+
+    handler.setLevel(
+        logging.INFO
+    )
+
+    formatter = logging.Formatter(
+        "%(asctime)s | "
+        "%(levelname)s | "
+        "%(name)s | "
+        "%(message)s"
+    )
+
+    handler.setFormatter(
+        formatter
+    )
+
+    logger.addHandler(
+        handler
+    )
+
+    logger.propagate = False
+
+    return logger
+
+
+logger = setup_logger()
+
+
+==================================================
+FILE: utils\state_manager.py
+==================================================
+# utils/state_manager.py
+
+from typing import Any
+
+
+class StateManager:
+
+    def __init__(self) -> None:
+
+        self._states: dict[int, str] = {}
+
+        self._data: dict[
+            int,
+            dict[str, Any],
+        ] = {}
+
+        self._contexts: dict[
+            int,
+            dict[str, Any],
+        ] = {}
+
+    # =========================================================
+    # State
+    # =========================================================
+
+    def set_state(
+        self,
+        user_id: int,
+        state: str,
+    ) -> None:
+
+        self._states[user_id] = state
+
+    def get_state(
+        self,
+        user_id: int,
+    ) -> str | None:
+
+        return self._states.get(
+            user_id
+        )
+
+    def clear_state(
+        self,
+        user_id: int,
+    ) -> None:
+
+        self._states.pop(
+            user_id,
+            None,
+        )
+
+        self._data.pop(
+            user_id,
+            None,
+        )
+
+    # =========================================================
+    # Temporary Data
+    # =========================================================
+
+    def set_data(
+        self,
+        user_id: int,
+        key: str,
+        value: Any,
+    ) -> None:
+
+        if user_id not in self._data:
+            self._data[user_id] = {}
+
+        self._data[user_id][key] = value
+
+    def get_data(
+        self,
+        user_id: int,
+        key: str,
+        default: Any = None,
+    ) -> Any:
+
+        return self._data.get(
+            user_id,
+            {},
+        ).get(
+            key,
+            default,
+        )
+
+    def get_all_data(
+        self,
+        user_id: int,
+    ) -> dict[str, Any]:
+
+        return self._data.get(
+            user_id,
+            {},
+        ).copy()
+
+    # =========================================================
+    # Persistent Context
+    # =========================================================
+
+    def set_context(
+        self,
+        user_id: int,
+        key: str,
+        value: Any,
+    ) -> None:
+
+        if user_id not in self._contexts:
+            self._contexts[user_id] = {}
+
+        self._contexts[user_id][key] = value
+
+    def get_context(
+        self,
+        user_id: int,
+        key: str,
+        default: Any = None,
+    ) -> Any:
+
+        return self._contexts.get(
+            user_id,
+            {},
+        ).get(
+            key,
+            default,
+        )
+
+    def clear_context(
+        self,
+        user_id: int,
+        key: str | None = None,
+    ) -> None:
+
+        if key is None:
+
+            self._contexts.pop(
+                user_id,
+                None,
+            )
+
+            return
+
+        context = self._contexts.get(
+            user_id
+        )
+
+        if context is None:
+            return
+
+        context.pop(
+            key,
+            None,
+        )
+
+        if not context:
+
+            self._contexts.pop(
+                user_id,
+                None,
+            )
+
+    def clear_all(
+        self,
+        user_id: int,
+    ) -> None:
+
+        self._states.pop(
+            user_id,
+            None,
+        )
+
+        self._data.pop(
+            user_id,
+            None,
+        )
+
+        self._contexts.pop(
+            user_id,
+            None,
+        )
+
+
+state_manager = StateManager()
+
+
+==================================================
+FILE: utils\validators.py
+==================================================
+# utils/validators.py
+
+import re
+
+
+PERSIAN_DIGITS = "Û°Û±Û²Û³Û´ÛµÛ¶Û·Û¸Û¹"
+ARABIC_DIGITS = "Ù Ù¡Ù¢Ù£Ù¤Ù¥Ù¦Ù§Ù¨Ù©"
+ENGLISH_DIGITS = "0123456789"
+
+
+_DIGIT_TRANSLATION = str.maketrans(
+    PERSIAN_DIGITS + ARABIC_DIGITS,
+    ENGLISH_DIGITS + ENGLISH_DIGITS,
+)
+
+
+def normalize_digits(
+    value: str,
+) -> str:
+
+    return str(value).translate(
+        _DIGIT_TRANSLATION
+    )
+
+
+def normalize_text(
+    value: str,
+) -> str:
+
+    value = str(value).strip()
+
+    value = re.sub(
+        r"\s+",
+        " ",
+        value,
+    )
+
+    return value
+
+
+def validate_full_name(
+    value: str,
+) -> bool:
+
+    value = normalize_text(
+        value
+    )
+
+    if not value:
+        return False
+
+    if len(value) < 3:
+        return False
+
+    if len(value) > 100:
+        return False
+
+    return bool(
+        re.fullmatch(
+            r"[\u0600-\u06FFa-zA-Z]+"
+            r"(?: [\u0600-\u06FFa-zA-Z]+)+",
+            value,
+        )
+    )
+
+
+def split_full_name(
+    value: str,
+) -> tuple[str, str]:
+
+    value = normalize_text(
+        value
+    )
+
+    parts = value.split(
+        " "
+    )
+
+    if len(parts) < 2:
+        return (
+            value,
+            "",
+        )
+
+    return (
+        parts[0],
+        " ".join(
+            parts[1:]
+        ),
+    )
+
+
+def validate_national_id(
+    value: str,
+) -> bool:
+
+    value = normalize_digits(
+        value.strip()
+    )
+
+    if not re.fullmatch(
+        r"\d{10}",
+        value,
+    ):
+        return False
+
+    # Reject the well-known invalid
+    # repeated-digit national IDs.
+    if len(set(value)) == 1:
+        return False
+
+    digits = [
+        int(char)
+        for char in value
+    ]
+
+    checksum = sum(
+        digits[index]
+        * (10 - index)
+        for index in range(9)
+    )
+
+    remainder = checksum % 11
+
+    control = digits[9]
+
+    if remainder < 2:
+        return control == remainder
+
+    return control == 11 - remainder
+
+
+def validate_phone_number(
+    value: str,
+) -> bool:
+
+    value = normalize_digits(
+        value.strip()
+    )
+
+    return bool(
+        re.fullmatch(
+            r"09\d{9}",
+            value,
+        )
+    )
+
+
+def validate_gender(
+    value: str,
+) -> bool:
+
+    value = normalize_text(
+        value
+    )
+
+    return value in {
+        "Ø¢Ù‚Ø§",
+        "Ø®Ø§Ù†Ù…",
+    }
+
+
+def validate_insurance(
+    value: str,
+) -> bool:
+
+    value = normalize_text(
+        value
+    )
+
+    return value in {
+        "Ø³Ù„Ø§Ù…Øª",
+        "ØªØ§Ù…ÛŒÙ† Ø§Ø¬ØªÙ…Ø§Ø¹ÛŒ",
+        "ØªØ£Ù…ÛŒÙ† Ø§Ø¬ØªÙ…Ø§Ø¹ÛŒ",
+        "Ù†ÛŒØ±ÙˆÙ‡Ø§ÛŒ Ù…Ø³Ù„Ø­",
+        "Ø¨Ø¯ÙˆÙ† Ø¨ÛŒÙ…Ù‡",
+    }

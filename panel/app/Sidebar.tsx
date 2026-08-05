@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, CalendarDays, Users, Settings, LogOut } from "lucide-react";
+import { LayoutDashboard, CalendarDays, Users, Settings, LogOut, ClipboardPlus } from "lucide-react";
 
 export default function Sidebar() {
   const pathname = usePathname();
@@ -11,25 +11,33 @@ export default function Sidebar() {
     return null;
   }
 
+  const baseClass = "flex items-center gap-3 px-4 py-3 rounded-xl font-medium transition-colors";
+  const activeClass = "bg-blue-600 text-white shadow-md";
+  const inactiveClass = "text-gray-600 hover:bg-gray-50 hover:text-blue-600";
+
   return (
     <aside className="w-64 bg-white border-l border-gray-200 flex flex-col shadow-sm">
       <div className="h-20 flex items-center justify-center border-b border-gray-100">
         <span className="text-xl font-extrabold text-blue-600">Clinic Panel</span>
       </div>
       <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
-        <Link href="/" className="flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 hover:text-blue-600 rounded-xl font-medium transition-colors">
+        <Link href="/" className={`${baseClass} ${pathname === '/' ? activeClass : inactiveClass}`}>
           <LayoutDashboard className="w-5 h-5" />
           داشبورد
         </Link>
-        <Link href="/appointments" className="flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 hover:text-blue-600 rounded-xl font-medium transition-colors">
+        <Link href="/desk" className={`${baseClass} ${pathname === '/desk' ? activeClass : inactiveClass}`}>
+          <ClipboardPlus className="w-5 h-5" />
+          میز کار منشی
+        </Link>
+        <Link href="/appointments" className={`${baseClass} ${pathname === '/appointments' ? activeClass : inactiveClass}`}>
           <CalendarDays className="w-5 h-5" />
           مدیریت نوبت‌ها
         </Link>
-        <Link href="/patients" className="flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 hover:text-blue-600 rounded-xl font-medium transition-colors">
+        <Link href="/patients" className={`${baseClass} ${pathname === '/patients' ? activeClass : inactiveClass}`}>
           <Users className="w-5 h-5" />
           لیست بیماران
         </Link>
-        <Link href="/settings" className="flex items-center gap-3 px-4 py-3 text-gray-600 hover:bg-gray-50 hover:text-blue-600 rounded-xl font-medium transition-colors">
+        <Link href="/settings" className={`${baseClass} ${pathname === '/settings' ? activeClass : inactiveClass}`}>
           <Settings className="w-5 h-5" />
           تنظیمات سیستم
         </Link>

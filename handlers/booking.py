@@ -13,7 +13,7 @@ from utils.keyboards import (
 )
 from utils.state_manager import state_manager
 from utils.validators import validate_full_name, validate_national_id, validate_phone_number, normalize_digits
-from handlers.patients import REGISTRATION_NAME, safe_delete_previous_inline, send_tracked_message
+from handlers.patients import REGISTRATION_NATIONAL_ID, safe_delete_previous_inline, send_tracked_message
 
 BOOKING_TARGET = "booking_target"
 BOOKING_SERVICE = "booking_service"
@@ -46,7 +46,7 @@ SERVICE_DEFINITIONS = {
 }
 
 GENDER_MAP = {"آقا": "male", "خانم": "female"}
-INSURANCE_MAP = {"سلامت": "health", "تأمین اجتماعی": "social_security", "نیروهای مسلح": "armed_forces", "بدون بیمه": "none"}
+INSURANCE_MAP = {"سلامت": "health", "تأمین اجتماعی": "social_security", "تامین اجتماعی": "social_security", "نیروهای مسلح": "armed_forces", "بدون بیمه": "none"}
 GENDER_DISPLAY = {"male": "آقا", "female": "خانم"}
 INSURANCE_DISPLAY = {"health": "سلامت", "social_security": "تأمین اجتماعی", "armed_forces": "نیروهای مسلح", "none": "بدون بیمه"}
 
@@ -103,7 +103,7 @@ async def show_services(target, user_id: int):
     state_manager.set_state(user_id, BOOKING_SERVICE)
     state_manager.set_data(user_id, "services", services)
 
-    text = "📅 دریافت نوبت\n\nلطفاً خدمت مورد نظر خود را انتخاب کنید:"
+    text = "🗓 دریافت نوبت\n\nلطفاً خدمت مورد نظر خود را انتخاب کنید:"
     keyboard = booking_services_keyboard(services)
 
     if isinstance(target, CallbackQuery): await send_callback_message(target, text, components=keyboard)
@@ -154,13 +154,13 @@ async def handle_booking_start(message: Message):
         return
     state_manager.clear_state(user_id)
     state_manager.set_state(user_id, BOOKING_TARGET)
-    await message.reply("📅 دریافت نوبت\n\nلطفاً مشخص کنید نوبت را برای چه کسی می‌خواهید:", components=booking_target_keyboard())
+    await message.reply("🗓 دریافت نوبت\n\nلطفاً مشخص کنید نوبت را برای چه کسی می‌خواهید:", components=booking_target_keyboard())
 
 async def handle_booking_start_callback(query: CallbackQuery):
     user_id = query.user.id
     state_manager.clear_state(user_id)
     state_manager.set_state(user_id, BOOKING_TARGET)
-    await send_callback_message(query, "📅 دریافت نوبت\n\nلطفاً مشخص کنید نوبت را برای چه کسی می‌خواهید:", components=booking_target_keyboard())
+    await send_callback_message(query, "🗓 دریافت نوبت\n\nلطفاً مشخص کنید نوبت را برای چه کسی می‌خواهید:", components=booking_target_keyboard())
 
 async def handle_booking_target_callback(query: CallbackQuery):
     user_id = query.user.id
@@ -172,11 +172,11 @@ async def handle_booking_target_callback(query: CallbackQuery):
         user, patient = get_selected_patient(user_id)
         if user is None or patient is None or not patient.get("national_id"):
             state_manager.clear_state(user_id)
-            state_manager.set_state(user_id, REGISTRATION_NAME)
+            state_manager.set_state(user_id, REGISTRATION_NATIONAL_ID)
             from utils.keyboards import cancel_only_inline_keyboard
             bot = query.message.get_bot()
             await activate_text_keyboard(bot, query.message.chat_id, is_registered=False)
-            await send_callback_message(query, "👤 برای دریافت نوبت، ابتدا باید اطلاعات شما ثبت شود.\n\nلطفاً نام و نام خانوادگی خود را وارد کنید:\n\n(مثال: علی رضایی)", components=cancel_only_inline_keyboard("❌ لغو"))
+            await send_callback_message(query, "👤 برای دریافت نوبت، ابتدا باید اطلاعات شما ثبت شود.\n\nلطفاً کد ملی ۱۰ رقمی خود را وارد کنید:\n\n(مثال: 0012345678)", components=cancel_only_inline_keyboard("❌ لغو"))
             return
         state_manager.set_data(user_id, "booking_target", "self")
         state_manager.set_data(user_id, "booking_patient_id", patient["id"])
@@ -315,7 +315,7 @@ async def handle_booking_time_callback(query: CallbackQuery):
         f"🏥 خدمت: {service_name}\n"
         f"⚧ جنسیت: {gender_text}\n"
         f"📅 تاریخ: {to_date_label(appointment_date)}\n"
-        f"🕒 ساعت: {start_time}\n\n"
+        f"🕘 ساعت: {start_time}\n\n"
         "در صورت صحت اطلاعات، روی «✅ تأیید و ثبت نهایی» کلیک کنید."
     )
     await send_callback_message(query, summary_text, components=booking_checkout_keyboard())
@@ -360,7 +360,8 @@ async def handle_booking_checkout_callback(query: CallbackQuery):
             else:
                 try:
                     patient_id = repository.create_patient(
-                        user_id=None, national_id=data_cache["other_national_id"], first_name=data_cache["other_first_name"],
+                        user_id=user["id"], # <-- باگ منبع ثبت‌نام اینجا رفع شد
+                        national_id=data_cache["other_national_id"], first_name=data_cache["other_first_name"],
                         last_name=data_cache["other_last_name"], phone_number=data_cache["other_phone"], birth_date=None,
                         gender=data_cache["other_gender"], insurance=data_cache["other_insurance"]
                     )
@@ -389,7 +390,7 @@ async def handle_booking_checkout_callback(query: CallbackQuery):
                 error_msg = (
                     "❌ **شخصی با این کد ملی در حال حاضر یک نوبت فعال برای این خدمت دارد.**\n"
                     "تا زمانی که نوبت قبلی انجام یا لغو نشود، نمی‌توانید نوبت جدیدی برای همین خدمت دریافت کنید.\n\n"
-                    "🔹 **راهنما:**\n"
+                    "🔸 **راهنما:**\n"
                     "• جهت مشاهده جزئیات نوبت و یا لغو آن، لطفاً از منوی **«📋 نوبت‌های من»** اقدام کنید.\n"
                     "• در صورتی که قصد دارید برای شخص دیگری (بجز خودتان) نوبت بگیرید، از منوی دریافت نوبت گزینه **«👥 برای شخص دیگر»** را انتخاب نمایید."
                 )
@@ -418,10 +419,10 @@ async def handle_booking_checkout_callback(query: CallbackQuery):
             f"✅ نوبت با موفقیت ثبت نهایی شد.\n\n"
             f"🏥 خدمت: {service_name}\n"
             f"📅 تاریخ: {to_persian_date(appointment_date)}\n"
-            f"🕒 ساعت: {start_time}\n"
+            f"🕘 ساعت: {start_time}\n"
             f"🔖 کد پیگیری: CF-{appointment_id:06d}\n\n\n"
-            f"🔸 جهت مشاهده جزئیات نوبت و یا لغو آن، از منوی «📋 نوبت‌های من» اقدام کنید.\n\n"
-            f"🔸 امکان لغو نوبت تنها تا ۲۴ ساعت قبل* از زمان رزرو وجود دارد."
+            f"🔹 جهت مشاهده جزئیات نوبت و یا لغو آن، از منوی «📋 نوبت‌های من» اقدام کنید.\n\n"
+            f"🔹 امکان لغو نوبت تنها تا ۲۴ ساعت قبل* از زمان رزرو وجود دارد."
         )
         await send_callback_message(query, success_msg, components=booking_confirmation_keyboard())
 
@@ -439,7 +440,7 @@ async def handle_booking_back_callback(query: CallbackQuery):
     if destination == "target":
         state_manager.clear_state(user_id)
         state_manager.set_state(user_id, BOOKING_TARGET)
-        await send_callback_message(query, "📅 دریافت نوبت\n\nنوبت را برای چه کسی می‌خواهید؟", components=booking_target_keyboard())
+        await send_callback_message(query, "🗓 دریافت نوبت\n\nنوبت را برای چه کسی می‌خواهید؟", components=booking_target_keyboard())
         return
     if destination == "services":
         await show_services(query, user_id)
@@ -449,7 +450,7 @@ async def handle_booking_back_callback(query: CallbackQuery):
         gender = state_manager.get_data(user_id, "gender")
         dates = state_manager.get_data(user_id, "dates", [])
         state_manager.set_state(user_id, BOOKING_DATE)
-        await send_callback_message(query, "📅 لطفاً تاریخ موردنظر را انتخاب کنید:\n\n❌ تاریخ‌های تکمیل‌شده قابل انتخاب نیستند.", components=booking_dates_keyboard(dates, service_id, gender))
+        await send_callback_message(query, "🗓 لطفاً تاریخ موردنظر را انتخاب کنید:\n\n❌ تاریخ‌های تکمیل‌شده قابل انتخاب نیستند.", components=booking_dates_keyboard(dates, service_id, gender))
         return
 
 async def process_booking_message(message: Message) -> bool:
@@ -465,7 +466,7 @@ async def process_booking_message(message: Message) -> bool:
             await send_tracked_message(message, user_id, "کد ملی نامعتبر است. لطفاً دقیقاً ۱۰ رقم وارد کنید.", components=other_back_inline_keyboard())
             return True
 
-        value = normalize_digits(value) # انگلیسی کردن عدد قبل از پردازش
+        value = normalize_digits(value)
         await safe_delete_previous_inline(message, user_id)
 
         user, patient = get_selected_patient(user_id)
@@ -493,7 +494,6 @@ async def process_booking_message(message: Message) -> bool:
             await send_tracked_message(message, user_id, "👤 این کد ملی در سیستم ثبت نشده است.\n\nلطفاً نام و نام خانوادگی بیمار را وارد کنید:\n\n(مثال: علی رضایی)", components=other_back_inline_keyboard())
         return True
 
-    # ------------------ ثبت شخص جدید ------------------
     if state == OTHER_PATIENT_NAME:
         normalized = " ".join(value.split())
         if not validate_full_name(normalized):
@@ -512,10 +512,10 @@ async def process_booking_message(message: Message) -> bool:
 
     if state == OTHER_PATIENT_PHONE:
         if not validate_phone_number(value):
-            await send_tracked_message(message, user_id, "شماره موبایل نامعتبر است.", components=other_back_inline_keyboard())
+            await send_tracked_message(message, user_id, "❌ شماره موبایل نامعتبر است. حتماً باید ۱۱ رقم باشد و با 09 شروع شود. مجدداً ارسال کنید:", components=other_back_inline_keyboard())
             return True
             
-        value = normalize_digits(value) # انگلیسی کردن عدد
+        value = normalize_digits(value)
         await safe_delete_previous_inline(message, user_id)
         state_manager.set_data(user_id, "other_phone", value)
         state_manager.set_state(user_id, OTHER_PATIENT_GENDER)
@@ -549,13 +549,11 @@ async def process_booking_message(message: Message) -> bool:
         
         state_manager.set_data(user_id, "other_insurance", INSURANCE_MAP[value])
         
-        await message.reply("✅ اطلاعات فرد دریافت شد.\در حال انتقال به بخش انتخاب خدمات...", components=main_keyboard())
+        await message.reply("✅ اطلاعات فرد دریافت شد. در حال انتقال به بخش انتخاب خدمات...", components=main_keyboard())
         await asyncio.sleep(0.5)
         await show_services(message, user_id)
         return True
 
-
-    # ------------------ ویرایش شخص دیگر ------------------
     if state == EDIT_OTHER_NAME:
         normalized = " ".join(value.split())
         if not validate_full_name(normalized):
@@ -575,7 +573,7 @@ async def process_booking_message(message: Message) -> bool:
             await send_tracked_message(message, user_id, "شماره موبایل نامعتبر است.", components=edit_other_back_inline_keyboard())
             return True
             
-        value = normalize_digits(value) # انگلیسی کردن عدد
+        value = normalize_digits(value)
         await safe_delete_previous_inline(message, user_id)
         state_manager.set_data(user_id, "edit_other_phone", value)
         state_manager.set_state(user_id, EDIT_OTHER_GENDER)
@@ -638,7 +636,6 @@ async def process_booking_message(message: Message) -> bool:
         updated_patient = repository.get_patient_by_national_id(national_id)
         await show_other_patient_profile(message, user_id, updated_patient)
         return True
-
 
     if state in (BOOKING_SERVICE, BOOKING_DATE, BOOKING_TIME, BOOKING_CHECKOUT):
         await message.reply("لطفاً از طریق دکمه‌های شیشه‌ای نمایش‌داده‌شده در بالا انتخاب خود را انجام دهید.")

@@ -33,17 +33,6 @@ const toEnglishDigits = (str: string | null) => {
   return result;
 };
 
-const formatJalaliDate = (dateString: string) => {
-  if (!dateString) return "";
-  const date = new Date(dateString);
-  return new Intl.DateTimeFormat("fa-IR", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    numberingSystem: "latn",
-  }).format(date);
-};
-
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -63,8 +52,7 @@ export default function Dashboard() {
           ...appt,
           national_id: toEnglishDigits(appt.national_id),
           phone_number: toEnglishDigits(appt.phone_number),
-          start_time: toEnglishDigits(appt.start_time),
-          appointment_date: formatJalaliDate(appt.appointment_date)
+          start_time: toEnglishDigits(appt.start_time)
         }));
         
         setAppointments(formattedAppts);
@@ -132,7 +120,7 @@ export default function Dashboard() {
               <XAxis dataKey="name" tick={{ fill: '#6b7280', fontSize: 12 }} axisLine={false} tickLine={false} />
               <YAxis allowDecimals={false} tick={{ fill: '#6b7280', fontSize: 12 }} axisLine={false} tickLine={false} />
               <Tooltip 
-                formatter={(value) => [value, 'تعداد']}
+                formatter={(value: any) => [value, 'تعداد']}
                 cursor={{ fill: '#f9fafb' }}
                 contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
               />

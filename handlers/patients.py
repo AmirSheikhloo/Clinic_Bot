@@ -11,8 +11,8 @@ from utils.state_manager import state_manager
 from utils.validators import validate_full_name, validate_national_id, validate_phone_number, normalize_digits
 from utils.helpers import send_welcome_message, get_msg_id, activate_text_keyboard
 
-REGISTRATION_NAME = "registration_name"
 REGISTRATION_NATIONAL_ID = "registration_national_id"
+REGISTRATION_NAME = "registration_name"
 REGISTRATION_PHONE = "registration_phone"
 REGISTRATION_GENDER = "registration_gender"
 REGISTRATION_INSURANCE = "registration_insurance"
@@ -61,13 +61,13 @@ async def handle_patient_registration(message: Message) -> None:
         return
 
     state_manager.clear_state(user_id)
-    state_manager.set_state(user_id, REGISTRATION_NAME)
+    state_manager.set_state(user_id, REGISTRATION_NATIONAL_ID)
     
     await activate_text_keyboard(message.get_bot(), message.chat_id, is_registered=False)
 
     await send_tracked_message(message, user_id,
-        "✨ کاربر گرامی، جهت تکمیل پرونده الکترونیک خود، لطفاً نام و نام خانوادگی خود را وارد کنید:\n\n"
-        "(مثال: علی رضایی)",
+        "✨ کاربر گرامی، جهت بررسی پرونده یا ثبت‌نام جدید، لطفاً ابتدا کد ملی ۱۰ رقمی خود را وارد کنید:\n\n"
+        "(مثال: 0012345678)",
         components=cancel_only_inline_keyboard("❌ لغو ثبت‌نام")
     )
 
@@ -82,35 +82,43 @@ async def process_registration_message(message: Message) -> bool:
         await message.reply("⚠️ لطفاً یک مقدار معتبر وارد نمایید.")
         return True
 
+    if state == REGISTRATION_NATIONAL_ID:
+        if not validate_national_id(value):
+            await send_tracked_message(message, user_id, "کد ملی واردشده معتبر نمی‌باشد.\nکد ملی باید دقیقاً ۱۰ رقم باشد و از الگوریتم صحیح پیروی کند. لطفاً مجدداً بررسی و ارسال کنید.", components=cancel_only_inline_keyboard("❌ لغو ثبت‌نام"))
+            return True
+            
+        value = normalize_digits(value)
+        
+        existing_patient = repository.get_patient_by_national_id(value)
+        
+        if existing_patient:
+            await safe_delete_previous_inline(message, user_id)
+            user = repository.get_user_by_bale_id(user_id)
+            
+            repository.update_patient(patient_id=existing_patient["id"], user_id=user["id"])
+            repository.add_patient_profile(user["id"], existing_patient["id"])
+            
+            state_manager.clear_state(user_id)
+            await message.reply(f"✅ پرونده شما در سیستم یافت شد!\nخوش برگشتید {existing_patient['first_name']} {existing_patient['last_name']} عزیز.")
+            await send_welcome_message(message, user_id)
+            return True
+            
+        await safe_delete_previous_inline(message, user_id)
+        state_manager.set_data(user_id, "national_id", value)
+        state_manager.set_state(user_id, REGISTRATION_NAME)
+        await send_tracked_message(message, user_id, "👤 این کد ملی در سیستم ثبت نشده است. بیایید یک پرونده جدید بسازیم!\n\nلطفاً نام و نام خانوادگی خود را وارد کنید:\n\n(مثال: علی رضایی)", components=cancel_back_inline_keyboard("❌ لغو ثبت‌نام"))
+        return True
+
     if state == REGISTRATION_NAME:
         normalized_name = " ".join(value.split())
         parts = normalized_name.split(" ")
         if len(parts) < 2 or not validate_full_name(normalized_name):
-            await send_tracked_message(message, user_id, "نام و نام خانوادگی واردشده صحیح نیست.\nلطفاً نام را به صورت کامل و با حروف فارسی وارد کنید.\n\n(مثال: علی رضایی)", components=cancel_only_inline_keyboard("❌ لغو ثبت‌نام"))
+            await send_tracked_message(message, user_id, "نام و نام خانوادگی واردشده صحیح نیست.\nلطفاً نام را به صورت کامل و با حروف فارسی وارد کنید.\n\n(مثال: علی رضایی)", components=cancel_back_inline_keyboard("❌ لغو ثبت‌نام"))
             return True
         
         await safe_delete_previous_inline(message, user_id)
         state_manager.set_data(user_id, "first_name", parts[0])
         state_manager.set_data(user_id, "last_name", " ".join(parts[1:]))
-        state_manager.set_state(user_id, REGISTRATION_NATIONAL_ID)
-        await send_tracked_message(message, user_id, "💳 لطفاً کد ملی ۱۰ رقمی خود را وارد کنید:\n\n(مثال: 0012345678)", components=cancel_back_inline_keyboard("❌ لغو ثبت‌نام"))
-        return True
-
-    if state == REGISTRATION_NATIONAL_ID:
-        if not validate_national_id(value):
-            await send_tracked_message(message, user_id, "کد ملی واردشده معتبر نمی‌باشد.\nکد ملی باید دقیقاً ۱۰ رقم باشد. لطفاً مجدداً بررسی و ارسال کنید.", components=cancel_back_inline_keyboard("❌ لغو ثبت‌نام"))
-            return True
-            
-        value = normalize_digits(value) # انگلیسی کردن عدد قبل از پردازش
-        
-        if repository.get_patient_by_national_id(value) is not None:
-            await safe_delete_previous_inline(message, user_id)
-            await message.reply("این کد ملی قبلاً در سامانه ثبت شده است. در صورت بروز اشتباه، لطفاً با پذیرش درمانگاه تماس بگیرید.", components=register_keyboard())
-            state_manager.clear_state(user_id)
-            return True
-            
-        await safe_delete_previous_inline(message, user_id)
-        state_manager.set_data(user_id, "national_id", value)
         state_manager.set_state(user_id, REGISTRATION_PHONE)
         await send_tracked_message(message, user_id, "📱 لطفاً شماره موبایل خود را وارد نمایید:\n\n(مثال: 09123456789)", components=cancel_back_inline_keyboard("❌ لغو ثبت‌نام"))
         return True
@@ -120,7 +128,7 @@ async def process_registration_message(message: Message) -> bool:
             await send_tracked_message(message, user_id, "شماره موبایل واردشده صحیح نیست.\nشماره موبایل باید ۱۱ رقم باشد و با 09 شروع شود.", components=cancel_back_inline_keyboard("❌ لغو ثبت‌نام"))
             return True
             
-        value = normalize_digits(value) # انگلیسی کردن عدد
+        value = normalize_digits(value)
         await safe_delete_previous_inline(message, user_id)
         state_manager.set_data(user_id, "phone_number", value)
         state_manager.set_state(user_id, REGISTRATION_GENDER)
@@ -268,7 +276,7 @@ async def process_edit_message(message: Message, state: str, value: str) -> bool
             await send_tracked_message(message, user_id, "کد ملی نامعتبر است. لطفاً مجدداً بررسی کنید.", components=edit_back_inline_keyboard("❌ لغو ویرایش"))
             return True
             
-        value = normalize_digits(value) # انگلیسی کردن عدد
+        value = normalize_digits(value)
         await safe_delete_previous_inline(message, user_id)
         state_manager.set_data(user_id, "edit_national_id", value)
         state_manager.set_state(user_id, EDIT_PHONE)
@@ -280,7 +288,7 @@ async def process_edit_message(message: Message, state: str, value: str) -> bool
             await send_tracked_message(message, user_id, "شماره موبایل نامعتبر است. لطفاً مجدداً بررسی کنید.", components=edit_back_inline_keyboard("❌ لغو ویرایش"))
             return True
             
-        value = normalize_digits(value) # انگلیسی کردن عدد
+        value = normalize_digits(value)
         await safe_delete_previous_inline(message, user_id)
         state_manager.set_data(user_id, "edit_phone_number", value)
         state_manager.set_state(user_id, EDIT_GENDER)

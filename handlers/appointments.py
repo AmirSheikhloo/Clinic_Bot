@@ -1,244 +1,269 @@
-from datetime import date
-from bale import Message, CallbackQuery
+"use client";
 
-from database.repository import repository
-from utils.state_manager import state_manager
-from utils.helpers import to_date_label, send_welcome_message, get_service_display_name
-from utils.keyboards import (
-    appointments_menu_keyboard,
-    appointment_list_keyboard,
-    appointment_detail_keyboard,
-    cancel_confirmation_keyboard,
-    cancel_success_inline_keyboard,
-    main_keyboard,
-    empty_appointments_keyboard,
-)
+import { useState, useEffect } from "react";
+import { Check, X, Search, Download } from "lucide-react";
+import * as XLSX from "xlsx-js-style";
 
-CANCEL_APPOINTMENT = "cancel_appointment"
+interface Appointment {
+  id: number;
+  user_id?: number | null;
+  source?: string;
+  first_name: string;
+  last_name: string;
+  national_id: string;
+  phone_number: string;
+  service_name: string;
+  appointment_date: string;
+  start_time: string;
+  status: string;
+  created_at: string;
+  gender?: string;
+}
 
-def get_tracking_code(appointment_id: int) -> str:
-    return f"CF-{appointment_id:06d}"
+const toEnglishDigits = (str: string | null) => {
+  if (!str) return "";
+  const persianNumbers = [/۰/g, /۱/g, /۲/g, /۳/g, /۴/g, /۵/g, /۶/g, /۷/g, /۸/g, /۹/g];
+  const arabicNumbers = [/٠/g, /١/g, /٢/g, /٣/g, /٤/g, /٥/g, /٦/g, /٧/g, /٨/g, /٩/g];
+  let result = String(str);
+  for (let i = 0; i < 10; i++) {
+    result = result.replace(persianNumbers[i], String(i)).replace(arabicNumbers[i], String(i));
+  }
+  return result;
+};
 
-def can_cancel_appointment(appointment) -> bool:
-    if appointment is None or appointment.get("status") != "scheduled": return False
-    try:
-        appointment_date = date.fromisoformat(appointment.get("appointment_date"))
-    except (TypeError, ValueError):
-        return False
-    return appointment_date > date.today()
+const formatJalaliDateTime = (dbDateString: string) => {
+  if (!dbDateString) return "";
+  const safeDateString = dbDateString.includes("T") ? dbDateString : dbDateString.replace(" ", "T") + "Z";
+  const date = new Date(safeDateString);
+  return new Intl.DateTimeFormat("fa-IR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    numberingSystem: "latn",
+  }).format(date);
+};
 
-def appointment_status_text(status: str) -> str:
-    status_names = {"scheduled": "ثبت شده", "completed": "انجام شده", "cancelled": "لغو شده", "no_show": "عدم مراجعه"}
-    return status_names.get(status, status)
+const formatTrackingCode = (id: number) => {
+  return `CF-${String(id).padStart(6, '0')}`;
+};
 
-def appointment_details_text(appointment) -> str:
-    service_name = get_service_display_name(appointment.get('service_name', ''), appointment.get('gender'))
+// تابع هوشمند تشخیص و چسباندن جنسیت به خدمات خاص
+const getServiceDisplayName = (serviceName: string, gender?: string) => {
+  if (!serviceName) return "";
+  let display = serviceName;
+  const genderedServices = ["بادکش", "حجامت عام", "زالودرمانی"];
+  const isGendered = genderedServices.some(s => display.includes(s));
+
+  if (isGendered) {
+    if (gender === "male") display += " آقایان";
+    else if (gender === "female") display += " بانوان";
+  }
+  return display;
+};
+
+export default function AppointmentsPage() {
+  const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [refreshTrigger, setRefreshTrigger] = useState(0);
+
+  useEffect(() => {
+    const fetchAppointments = async () => {
+      try {
+        const res = await fetch("http://127.0.0.1:8000/api/appointments");
+        const data: Appointment[] = await res.json();
+        
+        const formattedData = data.map(appt => ({
+          ...appt,
+          national_id: toEnglishDigits(appt.national_id),
+          phone_number: toEnglishDigits(appt.phone_number),
+          start_time: toEnglishDigits(appt.start_time)
+        }));
+        
+        setAppointments(formattedData);
+      } catch {
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchAppointments();
+  }, [refreshTrigger]);
+
+  const handleStatusChange = async (id: number, newStatus: string) => {
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/api/appointments/${id}/status`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      if (res.ok) {
+        setRefreshTrigger(prev => prev + 1);
+      }
+    } catch {}
+  };
+
+  const query = toEnglishDigits(searchQuery.trim().toLowerCase());
+  
+  const filteredAppointments = query
+    ? appointments.filter((a) => {
+        const trackingCode = formatTrackingCode(a.id).toLowerCase();
+        const displayService = getServiceDisplayName(a.service_name, a.gender).toLowerCase();
+        return (
+          trackingCode.includes(query) ||
+          a.id.toString() === query ||
+          a.first_name.includes(query) ||
+          a.last_name.includes(query) ||
+          (a.national_id && a.national_id.includes(query)) ||
+          (a.phone_number && a.phone_number.includes(query)) ||
+          displayService.includes(query)
+        );
+      })
+    : appointments;
+
+  const handleExportExcel = () => {
+    const exportData = filteredAppointments.map((a, index) => ({
+      "ردیف": index + 1,
+      "نام و نام خانوادگی": `${a.first_name} ${a.last_name}`,
+      "کد ملی": a.national_id || "ثبت نشده",
+      "شماره تماس": a.phone_number,
+      "خدمت": getServiceDisplayName(a.service_name, a.gender),
+      "تاریخ مراجعه": a.appointment_date,
+      "ساعت مراجعه": a.start_time,
+      "وضعیت": a.status === 'scheduled' ? 'در انتظار' : 
+               a.status === 'accepted' ? 'پذیرش شده' : 
+               a.status === 'cancelled' ? 'لغو شده' : 
+               a.status === 'no_show' ? 'عدم مراجعه' : a.status,
+      "منبع دریافت نوبت": a.source === 'panel' ? "پنل مدیریت (توسط منشی)" : "ربات بله / تلگرام",
+      "کد پیگیری": formatTrackingCode(a.id),
+      "زمان ثبت نوبت در سیستم": formatJalaliDateTime(a.created_at)
+    }));
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    
+    worksheet['!cols'] = [
+      { wch: 8 }, { wch: 25 }, { wch: 15 }, { wch: 15 }, 
+      { wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 25 }, { wch: 15 }, { wch: 25 }
+    ];
+
+    for (const i in worksheet) {
+      if (typeof worksheet[i] !== 'object') continue;
+      worksheet[i].s = {
+        alignment: { horizontal: "center", vertical: "center" }
+      };
+    }
+
+    const workbook = XLSX.utils.book_new();
+    workbook.Workbook = { Views: [{ RTL: true }] };
+    XLSX.utils.book_append_sheet(workbook, worksheet, "نوبت‌ها");
+    XLSX.writeFile(workbook, "Appointments_List.xlsx");
+  };
+
+  if (loading) {
     return (
-        "📋 جزئیات نوبت\n\n"
-        f"🔖 کد پیگیری: {get_tracking_code(appointment.get('id'))}\n"
-        f"🏥 خدمت: {service_name}\n"
-        f"📅 تاریخ: {to_date_label(appointment.get('appointment_date'))}\n"
-        f"🕐 ساعت: {appointment.get('start_time')}\n"
-        f"👤 بیمار: {appointment.get('patient_first_name') or ''} {appointment.get('patient_last_name') or ''}\n"
-        f"📌 وضعیت: {appointment_status_text(appointment.get('status'))}"
-    )
+      <div className="flex h-screen items-center justify-center">
+        <div className="text-xl font-bold text-blue-600">در حال بارگذاری نوبت‌ها...</div>
+      </div>
+    );
+  }
 
-async def send_callback_message(query: CallbackQuery, text: str, components=None) -> None:
-    if query.message is None: return
-    bot = query.message.get_bot()
-    await bot.send_message(query.message.chat_id, text, components=components)
-    try:
-        await query.message.delete()
-    except Exception:
-        pass
+  return (
+    <div className="min-h-screen p-8">
+      <header className="mb-8 flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+        <h1 className="text-3xl font-bold text-gray-800">مدیریت نوبت‌ها</h1>
+        
+        <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-center">
+          <div className="relative w-full sm:w-80 h-11">
+            <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+              <Search className="h-5 w-5 text-gray-400" />
+            </div>
+            <input
+              type="text"
+              className="block w-full h-full pr-10 pl-3 border border-gray-200 rounded-xl leading-5 bg-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all shadow-sm"
+              placeholder="جستجوی کد پیگیری، بیمار، خدمت..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          
+          <button
+            onClick={handleExportExcel}
+            className="flex h-11 items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-5 rounded-xl font-medium transition-colors shadow-sm whitespace-nowrap"
+          >
+            <Download className="w-5 h-5" />
+            خروجی اکسل
+          </button>
+        </div>
+      </header>
 
-async def get_user_appointment(query: CallbackQuery, appointment_id: int):
-    user = repository.get_user_by_bale_id(query.user.id)
-    if user is None: return None
-    return repository.get_user_appointment(user_id=user["id"], appointment_id=appointment_id)
-
-async def handle_my_appointments(message: Message) -> None:
-    user = repository.get_user_by_bale_id(message.author.id)
-    if user is None:
-        await message.reply("اطلاعات کاربری شما پیدا نشد.\nلطفاً ابتدا /start را بزنید.")
-        return
-    current_appointments = repository.get_current_appointments_for_user(user["id"])
-    if not current_appointments:
-        await message.reply("📋 نوبت‌های من\n\nشما هنوز نوبتی ثبت نکرده‌اید.", components=empty_appointments_keyboard())
-        return
-    await message.reply("📋 نوبت‌های من\n\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:", components=appointments_menu_keyboard())
-
-async def handle_appointment_callback(query: CallbackQuery) -> None:
-    data = query.data or ""
-    if not data: return
-
-    if data == "appointments:menu":
-        await send_callback_message(query, "📋 نوبت‌های من\n\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:", components=appointments_menu_keyboard())
-        return
-
-    if data == "appointments:current":
-        await handle_current_appointments_callback(query)
-        return
-
-    if data == "appointments:history":
-        await handle_appointment_history_callback(query)
-        return
-
-    if data == "appointments:home":
-        state_manager.clear_state(query.user.id)
-        await send_welcome_message(query, query.user.id)
-        return
-
-    if data.startswith("appointment_current:"):
-        await handle_appointment_detail_callback(query, prefix="appointment_current:")
-        return
-
-    if data.startswith("appointment_history:"):
-        await handle_appointment_detail_callback(query, prefix="appointment_history:")
-        return
-
-    if data.startswith("appointment_cancel:"):
-        await handle_appointment_cancel_callback(query)
-        return
-
-    if data.startswith("appointment_cancel_confirm:"):
-        await handle_appointment_cancel_confirm_callback(query)
-        return
-
-    if data.startswith("appointment_cancel_abort:"):
-        await handle_appointment_cancel_abort_callback(query)
-        return
-
-async def handle_current_appointments_callback(query: CallbackQuery) -> None:
-    user = repository.get_user_by_bale_id(query.user.id)
-    if user is None:
-        await send_callback_message(query, "اطلاعات کاربری شما پیدا نشد.", components=main_keyboard())
-        return
-    appointments = repository.get_current_appointments_for_user(user["id"])
-    if not appointments:
-        await send_callback_message(query, "📋 نوبت‌های جاری\n\nشما هنوز نوبتی ثبت نکرده‌اید.", components=empty_appointments_keyboard())
-        return
-    await send_callback_message(query, "📋 نوبت‌های جاری\n\nبرای مشاهده جزئیات، نوبت موردنظر را انتخاب کنید:", components=appointment_list_keyboard(appointments, prefix="appointment_current"))
-
-async def handle_appointment_history_callback(query: CallbackQuery) -> None:
-    user = repository.get_user_by_bale_id(query.user.id)
-    if user is None:
-        await send_callback_message(query, "اطلاعات کاربری شما پیدا نشد.", components=main_keyboard())
-        return
-    appointments = repository.get_appointment_history_for_user(user["id"])
-    if not appointments:
-        await send_callback_message(query, "📜 تاریخچه نوبت‌ها\n\nدر حال حاضر تاریخچه‌ای از نوبت‌های قبلی شما وجود ندارد.", components=empty_appointments_keyboard())
-        return
-    await send_callback_message(query, "📜 تاریخچه نوبت‌ها\n\nبرای مشاهده جزئیات، نوبت موردنظر را انتخاب کنید:", components=appointment_list_keyboard(appointments, prefix="appointment_history"))
-
-async def handle_appointment_detail_callback(query: CallbackQuery, prefix: str) -> None:
-    data = query.data or ""
-    try:
-        appointment_id = int(data.split(prefix, 1)[1])
-    except (ValueError, IndexError):
-        return
-
-    appointment = await get_user_appointment(query, appointment_id)
-    if appointment is None:
-        await send_callback_message(query, "این نوبت پیدا نشد یا دیگر دسترسی به آن امکان‌پذیر نیست.", components=appointments_menu_keyboard())
-        return
-
-    can_cancel = can_cancel_appointment(appointment)
-    text = appointment_details_text(appointment)
-
-    if appointment.get("status") == "scheduled" and not can_cancel:
-        try:
-            appointment_date = date.fromisoformat(appointment.get("appointment_date"))
-        except (TypeError, ValueError):
-            appointment_date = None
-        if appointment_date is not None and appointment_date <= date.today():
-            text += "\n\n⚠️ این نوبت دیگر قابل لغو نیست."
-
-    await send_callback_message(query, text, components=appointment_detail_keyboard(appointment_id=appointment.get("id"), can_cancel=can_cancel))
-
-async def handle_appointment_cancel_callback(query: CallbackQuery) -> None:
-    data = query.data or ""
-    try:
-        appointment_id = int(data.split(":", 1)[1])
-    except (ValueError, IndexError):
-        return
-
-    appointment = await get_user_appointment(query, appointment_id)
-    if appointment is None:
-        await send_callback_message(query, "این نوبت پیدا نشد.", components=appointments_menu_keyboard())
-        return
-
-    if appointment.get("status") != "scheduled":
-        await send_callback_message(query, "این نوبت دیگر فعال نیست و قابل لغو نمی‌باشد.", components=appointment_detail_keyboard(appointment_id, can_cancel=False))
-        return
-
-    if not can_cancel_appointment(appointment):
-        await send_callback_message(query, "⚠️ لغو این نوبت امکان‌پذیر نیست.\n\nلغو نوبت فقط تا یک روز قبل از تاریخ نوبت امکان‌پذیر است.", components=appointment_detail_keyboard(appointment_id, can_cancel=False))
-        return
-
-    service_name = get_service_display_name(appointment.get('service_name', ''), appointment.get('gender'))
-
-    await send_callback_message(
-        query,
-        f"⚠️ لغو نوبت\n\n🏥 خدمت: {service_name}\n📅 تاریخ: {to_date_label(appointment.get('appointment_date'))}\n🕐 ساعت: {appointment.get('start_time')}\n\nآیا از لغو این نوبت مطمئن هستید؟",
-        components=cancel_confirmation_keyboard(appointment_id),
-    )
-
-async def handle_appointment_cancel_confirm_callback(query: CallbackQuery) -> None:
-    data = query.data or ""
-    try:
-        appointment_id = int(data.split(":", 1)[1])
-    except (ValueError, IndexError):
-        return
-
-    appointment = await get_user_appointment(query, appointment_id)
-    if appointment is None:
-        await send_callback_message(query, "این نوبت پیدا نشد.", components=appointments_menu_keyboard())
-        return
-
-    if appointment.get("status") != "scheduled":
-        await send_callback_message(query, "این نوبت دیگر فعال نیست و قابل لغو نمی‌باشد.", components=appointments_menu_keyboard())
-        return
-
-    if not can_cancel_appointment(appointment):
-        await send_callback_message(query, "⚠️ زمان مجاز لغو این نوبت گذشته است.", components=appointment_detail_keyboard(appointment_id, can_cancel=False))
-        return
-
-    try:
-        repository.cancel_appointment(appointment_id)
-    except Exception:
-        await send_callback_message(query, "❌ هنگام لغو نوبت مشکلی پیش آمد.\nلطفاً دوباره تلاش کنید.", components=appointments_menu_keyboard())
-        return
-
-    state_manager.clear_state(query.user.id)
-    service_name = get_service_display_name(appointment.get('service_name', ''), appointment.get('gender'))
-
-    await send_callback_message(
-        query,
-        f"✅ نوبت شما با موفقیت لغو شد.\n\n🔖 کد پیگیری: {get_tracking_code(appointment.get('id'))}\n🏥 خدمت: {service_name}\n📅 تاریخ: {to_date_label(appointment.get('appointment_date'))}\n🕐 ساعت: {appointment.get('start_time')}",
-        components=cancel_success_inline_keyboard(),
-    )
-
-async def handle_appointment_cancel_abort_callback(query: CallbackQuery) -> None:
-    data = query.data or ""
-    try:
-        appointment_id = int(data.split(":", 1)[1])
-    except (ValueError, IndexError):
-        return
-
-    appointment = await get_user_appointment(query, appointment_id)
-    if appointment is None:
-        await send_callback_message(query, "این نوبت پیدا نشد.", components=appointments_menu_keyboard())
-        return
-
-    await send_callback_message(query, appointment_details_text(appointment), components=appointment_detail_keyboard(appointment_id=appointment.get("id"), can_cancel=can_cancel_appointment(appointment)))
-
-async def handle_cancel_appointment(message: Message) -> None:
-    await handle_my_appointments(message)
-
-async def process_cancel_appointment(message: Message) -> bool:
-    if state_manager.get_state(message.author.id) != CANCEL_APPOINTMENT:
-        return False
-    state_manager.clear_state(message.author.id)
-    await message.reply("لغو نوبت از طریق بخش «نوبت‌های من» انجام می‌شود.", components=appointments_menu_keyboard())
-    return True
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-right">
+            <thead className="bg-gray-50 border-b border-gray-100">
+              <tr>
+                <th className="p-4 text-gray-600 font-medium text-sm">کد پیگیری</th>
+                <th className="p-4 text-gray-600 font-medium text-sm">بیمار</th>
+                <th className="p-4 text-gray-600 font-medium text-sm">شماره تماس</th>
+                <th className="p-4 text-gray-600 font-medium text-sm">منبع</th>
+                <th className="p-4 text-gray-600 font-medium text-sm">خدمت</th>
+                <th className="p-4 text-gray-600 font-medium text-sm">تاریخ و ساعت</th>
+                <th className="p-4 text-gray-600 font-medium text-sm">وضعیت</th>
+                <th className="p-4 text-gray-600 font-medium text-sm text-center">عملیات</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filteredAppointments.map((appt) => (
+                <tr key={appt.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="p-4 text-blue-600 font-mono font-medium text-sm bg-blue-50/30">{formatTrackingCode(appt.id)}</td>
+                  <td className="p-4 text-gray-800 font-medium">{appt.first_name} {appt.last_name}</td>
+                  <td className="p-4 text-gray-600 font-mono text-sm" dir="ltr">{appt.phone_number}</td>
+                  <td className="p-4 text-sm font-medium">
+                    <span className={appt.source === 'panel' ? "text-gray-600 bg-gray-50 px-2 py-1 rounded" : "text-blue-600 bg-blue-50 px-2 py-1 rounded"}>
+                      {appt.source === 'panel' ? "پنل منشی" : "ربات بله"}
+                    </span>
+                  </td>
+                  <td className="p-4 text-gray-800">{getServiceDisplayName(appt.service_name, appt.gender)}</td>
+                  <td className="p-4 text-gray-600 font-mono text-sm">{appt.appointment_date} | {appt.start_time}</td>
+                  <td className="p-4">
+                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                      appt.status === 'scheduled' ? 'bg-blue-100 text-blue-700' :
+                      appt.status === 'accepted' ? 'bg-green-100 text-green-700' :
+                      appt.status === 'cancelled' ? 'bg-red-100 text-red-700' :
+                      'bg-gray-100 text-gray-700'
+                    }`}>
+                      {appt.status === 'scheduled' ? 'در انتظار' : 
+                       appt.status === 'accepted' ? 'پذیرش شده' : 
+                       appt.status === 'cancelled' ? 'لغو شده' : 
+                       appt.status === 'no_show' ? 'عدم مراجعه' : appt.status}
+                    </span>
+                  </td>
+                  <td className="p-4 flex justify-center gap-2">
+                    {appt.status === 'scheduled' && (
+                      <>
+                        <button 
+                          onClick={() => handleStatusChange(appt.id, 'accepted')}
+                          className="flex items-center gap-1 bg-green-50 text-green-600 hover:bg-green-100 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                        >
+                          <Check className="w-4 h-4" /> پذیرش
+                        </button>
+                        <button 
+                          onClick={() => handleStatusChange(appt.id, 'cancelled')}
+                          className="flex items-center gap-1 bg-red-50 text-red-600 hover:bg-red-100 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
+                        >
+                          <X className="w-4 h-4" /> لغو
+                        </button>
+                      </>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}

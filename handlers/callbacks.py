@@ -62,7 +62,7 @@ async def handle_callback(query: CallbackQuery) -> None:
         bot = query.message.get_bot()
         try: await query.message.delete()
         except: pass
-        await bot.send_message(query.message.chat_id, "❌ فرایند متوقف شد.", components=main_keyboard())
+        await bot.send_message(query.message.chat_id, "❌ فرایند ثبت‌نام لغو شد.", components=main_keyboard())
         await send_welcome_message(query, user_id)
         return
 
@@ -84,13 +84,14 @@ async def handle_callback(query: CallbackQuery) -> None:
         bot = query.message.get_bot()
         chat_id = query.message.chat_id
         
-        if state == REGISTRATION_NATIONAL_ID:
-            state_manager.set_state(user_id, REGISTRATION_NAME)
-            await send_callback_message(query, "✨ کاربر گرامی، جهت تکمیل پرونده الکترونیک خود، لطفاً نام و نام خانوادگی خود را وارد کنید:\n\n(مثال: علی رضایی)", components=cancel_only_inline_keyboard("❌ لغو ثبت‌نام"))
+        # ترتیب برعکس شد: نام برمی‌گردد به کد ملی
+        if state == REGISTRATION_NAME:
+            state_manager.set_state(user_id, REGISTRATION_NATIONAL_ID)
+            await send_callback_message(query, "✨ کاربر گرامی، جهت بررسی پرونده یا ثبت‌نام جدید، لطفاً ابتدا کد ملی ۱۰ رقمی خود را وارد کنید:\n\n(مثال: 0012345678)", components=cancel_only_inline_keyboard("❌ لغو ثبت‌نام"))
             return
         elif state == REGISTRATION_PHONE:
-            state_manager.set_state(user_id, REGISTRATION_NATIONAL_ID)
-            await send_callback_message(query, "💳 لطفاً کد ملی ۱۰ رقمی خود را وارد کنید:\n\n(مثال: 0012345678)", components=cancel_back_inline_keyboard("❌ لغو ثبت‌نام"))
+            state_manager.set_state(user_id, REGISTRATION_NAME)
+            await send_callback_message(query, "👤 این کد ملی در سیستم ثبت نشده است. بیایید یک پرونده جدید بسازیم!\n\nلطفاً نام و نام خانوادگی خود را وارد کنید:\n\n(مثال: علی رضایی)", components=cancel_back_inline_keyboard("❌ لغو ثبت‌نام"))
             return
         elif state == REGISTRATION_GENDER:
             state_manager.set_state(user_id, REGISTRATION_PHONE)
@@ -170,7 +171,6 @@ async def handle_callback(query: CallbackQuery) -> None:
             await bot.send_message(chat_id, "لطفاً از منوی بازشده در پایین صفحه استفاده کنید:", components=gender_keyboard())
             await send_callback_message(query, "⚧ لطفاً جنسیت را انتخاب کنید:", components=other_back_inline_keyboard())
             return
-        # اگر کاربر در حال مشاهده پرونده شخص دیگر باشد و دکمه بازگشت را بزند
         elif state == "BOOKING_OTHER_CONFIRM":
             state_manager.set_state(user_id, OTHER_PATIENT_NATIONAL_ID)
             await send_callback_message(query, "👥 ثبت نوبت برای شخص دیگر\n\nابتدا لطفاً کد ملی ۱۰ رقمی فرد موردنظر را وارد کنید:\n\n(مثال: 0012345678)", components=other_cancel_inline_keyboard())
