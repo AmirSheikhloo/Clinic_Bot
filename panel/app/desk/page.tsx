@@ -49,7 +49,6 @@ const isValidIranianNationalId = (input: string) => {
   return (mod < 2 && check === mod) || (mod >= 2 && check === 11 - mod);
 };
 
-// تابع هوشمند برای تغییر نام خدمات بر اساس جنسیت در منوی کشویی
 const getServiceDisplayName = (serviceName: string, gender?: string) => {
   if (!serviceName) return "";
   let display = serviceName;
@@ -128,7 +127,7 @@ const TimeInput = ({ value, onChange }: { value: string, onChange: (val: string)
   };
 
   return (
-    <div className="flex items-center justify-center w-full px-4 h-[50px] border border-gray-200 rounded-xl focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white transition-all shadow-sm cursor-text" dir="ltr">
+    <div className="flex items-center justify-center w-full px-4 h-12 border border-gray-200 rounded-xl focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 bg-white transition-all shadow-sm cursor-text" dir="ltr">
       <input
         type="tel"
         inputMode="numeric"
@@ -368,15 +367,15 @@ export default function FastDeskPage() {
   const currentActiveGender = patient ? patient.gender : patientGender;
 
   return (
-    <div className="min-h-screen p-8 bg-gray-50">
-      <header className="mb-8 flex justify-between items-center">
+    <div className="min-h-screen px-8 pt-12 pb-8 bg-gray-50">
+      <header className="mb-8 flex justify-between items-center mt-2">
         <div>
           <h1 className="text-3xl font-bold text-gray-800">میز کار سریع منشی</h1>
           <p className="text-gray-500 mt-2">ثبت سریع بیمار و نوبت‌دهی بدون اتلاف وقت</p>
         </div>
         {(patient || newPatientMode || nationalId) && (
-          <button onClick={clearDesk} className="flex items-center gap-2 bg-red-100 hover:bg-red-200 text-red-700 px-4 py-2 rounded-xl text-sm font-medium transition-colors">
-            <Trash2 className="w-4 h-4" /> انصراف و پاک کردن میز
+          <button onClick={clearDesk} className="flex items-center justify-center gap-2.5 bg-red-50 hover:bg-red-100 text-red-600 px-6 h-12 rounded-xl text-sm font-bold transition-all shadow-sm border border-red-100">
+            <Trash2 className="w-5 h-5" /> انصراف و پاک کردن میز
           </button>
         )}
       </header>
@@ -392,7 +391,7 @@ export default function FastDeskPage() {
               <input
                 type="text"
                 placeholder="کد ملی ۱۰ رقمی را وارد کنید..."
-                className="w-full pl-12 pr-4 h-[50px] border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-right font-mono tracking-widest placeholder:text-gray-400 placeholder:font-sans"
+                className="w-full pl-12 pr-4 h-12 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-right font-mono tracking-widest placeholder:text-gray-400 placeholder:font-sans"
                 dir="rtl"
                 value={nationalId}
                 onChange={(e) => setNationalId(e.target.value.replace(/\D/g, '').slice(0, 10))}
@@ -408,7 +407,7 @@ export default function FastDeskPage() {
                 )}
               </div>
             </div>
-            <button type="submit" disabled={searchLoading} className="bg-blue-600 hover:bg-blue-700 text-white px-6 h-[50px] rounded-xl font-medium transition-colors whitespace-nowrap">
+            <button type="submit" disabled={searchLoading} className="bg-blue-600 hover:bg-blue-700 text-white px-6 h-12 rounded-xl font-medium transition-colors whitespace-nowrap">
               {searchLoading ? "..." : "بررسی کد"}
             </button>
           </form>
@@ -422,11 +421,11 @@ export default function FastDeskPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm text-blue-900 mb-1">نام:</label>
-                    <input type="text" value={firstName} onChange={e => setFirstName(e.target.value.replace(/[0-9۰-۹]/g, ''))} className="w-full px-4 h-[50px] border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" required />
+                    <input type="text" value={firstName} onChange={e => setFirstName(e.target.value.replace(/[0-9۰-۹]/g, ''))} className="w-full px-4 h-12 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" required />
                   </div>
                   <div>
                     <label className="block text-sm text-blue-900 mb-1">نام خانوادگی:</label>
-                    <input type="text" value={lastName} onChange={e => setLastName(e.target.value.replace(/[0-9۰-۹]/g, ''))} className="w-full px-4 h-[50px] border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" required />
+                    <input type="text" value={lastName} onChange={e => setLastName(e.target.value.replace(/[0-9۰-۹]/g, ''))} className="w-full px-4 h-12 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" required />
                   </div>
                 </div>
                 
@@ -434,7 +433,7 @@ export default function FastDeskPage() {
                   <div>
                     <label className="block text-sm text-blue-900 mb-1">شماره تماس:</label>
                     <div className="relative">
-                      <input type="text" value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="09123456789" dir="ltr" className="w-full pl-10 pr-3 h-[50px] border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-center font-mono tracking-widest" required />
+                      <input type="text" value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} placeholder="09123456789" dir="ltr" className="w-full pl-10 pr-3 h-12 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-center font-mono tracking-widest" required />
                       <div className="absolute left-2 top-1/2 -translate-y-1/2 flex items-center justify-center">
                         {phone.length === 11 ? (
                           phone.startsWith("09") ? <CheckCircle className="w-5 h-5 text-green-500" /> : <XCircle className="w-5 h-5 text-red-500" />
@@ -448,7 +447,7 @@ export default function FastDeskPage() {
                   </div>
                   <div>
                     <label className="block text-sm text-blue-900 mb-1">جنسیت:</label>
-                    <div className="flex bg-blue-100/50 p-1 rounded-xl border border-blue-200/50 h-[50px] items-center">
+                    <div className="flex bg-blue-100/50 p-1 rounded-xl border border-blue-200/50 h-12 items-center">
                       <button type="button" onClick={() => setPatientGender('male')} className={`flex-1 h-full text-sm font-bold rounded-lg transition-all ${patientGender === 'male' ? 'bg-white text-blue-600 shadow-sm' : 'text-blue-500 hover:text-blue-700'}`}>آقا</button>
                       <button type="button" onClick={() => setPatientGender('female')} className={`flex-1 h-full text-sm font-bold rounded-lg transition-all ${patientGender === 'female' ? 'bg-white text-blue-600 shadow-sm' : 'text-blue-500 hover:text-blue-700'}`}>خانم</button>
                     </div>
@@ -494,11 +493,11 @@ export default function FastDeskPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm text-blue-900 mb-1">نام:</label>
-                    <input type="text" value={firstName} onChange={e => setFirstName(e.target.value.replace(/[0-9۰-۹]/g, ''))} className="w-full px-4 h-[50px] border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <input type="text" value={firstName} onChange={e => setFirstName(e.target.value.replace(/[0-9۰-۹]/g, ''))} className="w-full px-4 h-12 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
                   </div>
                   <div>
                     <label className="block text-sm text-blue-900 mb-1">نام خانوادگی:</label>
-                    <input type="text" value={lastName} onChange={e => setLastName(e.target.value.replace(/[0-9۰-۹]/g, ''))} className="w-full px-4 h-[50px] border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
+                    <input type="text" value={lastName} onChange={e => setLastName(e.target.value.replace(/[0-9۰-۹]/g, ''))} className="w-full px-4 h-12 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none" />
                   </div>
                 </div>
                 
@@ -506,7 +505,7 @@ export default function FastDeskPage() {
                   <div>
                     <label className="block text-sm text-blue-900 mb-1">شماره تماس جدید:</label>
                     <div className="relative">
-                      <input type="text" value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} dir="ltr" className="w-full pl-10 pr-3 h-[50px] border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-center font-mono tracking-widest" />
+                      <input type="text" value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, '').slice(0, 11))} dir="ltr" className="w-full pl-10 pr-3 h-12 border border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-center font-mono tracking-widest" />
                       <div className="absolute left-2 top-1/2 -translate-y-1/2 flex items-center justify-center">
                         {phone.length === 11 ? (
                           phone.startsWith("09") ? <CheckCircle className="w-5 h-5 text-green-500" /> : <XCircle className="w-5 h-5 text-red-500" />
@@ -520,7 +519,7 @@ export default function FastDeskPage() {
                   </div>
                   <div>
                     <label className="block text-sm text-blue-900 mb-1">جنسیت:</label>
-                    <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 h-[50px] items-center">
+                    <div className="flex bg-gray-100 p-1 rounded-xl border border-gray-200 h-12 items-center">
                       <button type="button" onClick={() => setPatientGender('male')} className={`flex-1 h-full text-sm font-bold rounded-lg transition-all ${patientGender === 'male' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>آقا</button>
                       <button type="button" onClick={() => setPatientGender('female')} className={`flex-1 h-full text-sm font-bold rounded-lg transition-all ${patientGender === 'female' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>خانم</button>
                     </div>
@@ -551,7 +550,7 @@ export default function FastDeskPage() {
           <form onSubmit={handleFinalSubmit} onKeyDown={handleKeyDown} className="space-y-5">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">انتخاب خدمت:</label>
-              <select required value={serviceId} onChange={e => setServiceId(e.target.value)} className="w-full px-4 h-[50px] border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white cursor-pointer">
+              <select required value={serviceId} onChange={e => setServiceId(e.target.value)} className="w-full px-4 h-12 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white cursor-pointer">
                 <option value="" disabled>یک خدمت را انتخاب کنید...</option>
                 {services.map(s => <option key={s.id} value={s.id}>{getServiceDisplayName(s.name, currentActiveGender)}</option>)}
               </select>
@@ -566,7 +565,7 @@ export default function FastDeskPage() {
                   value={date}
                   onChange={(dateObject: CustomDate | null) => setDate(dateObject?.format?.("YYYY/MM/DD") || "")}
                   containerClassName="w-full"
-                  inputClass="w-full px-4 h-[50px] border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-center font-mono cursor-pointer"
+                  inputClass="w-full px-4 h-12 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 text-center font-mono cursor-pointer"
                   editable={false}
                 />
               </div>
@@ -576,7 +575,7 @@ export default function FastDeskPage() {
               </div>
             </div>
 
-            <button type="submit" disabled={!(patient || newPatientMode) || isEditing} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium h-[54px] rounded-xl transition-colors mt-4 shadow-md disabled:opacity-70">
+            <button type="submit" disabled={!(patient || newPatientMode) || isEditing} className="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium h-12 rounded-xl transition-colors mt-4 shadow-md disabled:opacity-70">
               ثبت نهایی (بیمار و نوبت)
             </button>
           </form>

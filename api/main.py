@@ -12,7 +12,7 @@ run_migrations()
 
 app = FastAPI(
     title="Clinic Dashboard API",
-    version="2.8.0"
+    version="3.0.0"
 )
 
 app.add_middleware(
@@ -100,7 +100,7 @@ def desk_book(payload: DeskBookRequest) -> dict:
                     payload.first_name, payload.last_name, payload.national_id, payload.phone_number, payload.patient_gender
                 )
             except sqlite3.IntegrityError:
-                raise HTTPException(status_code=400, detail="این کد ملی قبلاً برای شخص دیگری در سیستم ثبت شده است.")
+                raise HTTPException(status_code=400, detail="این کد ملی قبلاً ثبت شده است.")
         else:
             patient_id = patient["id"]
 
@@ -135,6 +135,13 @@ def get_stats() -> dict:
     except Exception:
         raise HTTPException(status_code=500, detail="خطا در دریافت آمار داشبورد.")
 
+@app.get("/api/dashboard/today")
+def get_today_appointments() -> List[Dict[str, Any]]:
+    try:
+        return crud.get_todays_appointments()
+    except Exception:
+        raise HTTPException(status_code=500, detail="خطا در دریافت نوبت‌های امروز.")
+
 @app.get("/api/patients")
 def get_patients() -> List[Dict[str, Any]]:
     try:
@@ -154,13 +161,20 @@ def update_patient(patient_id: int, payload: UpdatePatientRequest) -> dict:
     try:
         success = crud.update_patient_info(patient_id, payload.first_name, payload.last_name, payload.phone_number, payload.gender)
         if not success:
-            raise HTTPException(status_code=404, detail="بیمار مورد نظر یافت نشد.")
+            raise HTTPException(status_code=404, detail="بیمار یافت نشد.")
         return {"success": True, "message": "بروزرسانی با موفقیت انجام شد."}
-    except sqlite3.IntegrityError:
-        # در این آپدیت کد ملی تغییر نمی‌کند پس ارور یکتایی معمولاً رخ نمی‌دهد
-        raise HTTPException(status_code=400, detail="خطای یکتایی اطلاعات در پایگاه داده.")
     except Exception:
         raise HTTPException(status_code=500, detail="خطا در بروزرسانی اطلاعات بیمار.")
+
+@app.delete("/api/patients/{patient_id}")
+def delete_patient(patient_id: int) -> dict:
+    try:
+        success = crud.soft_delete_patient(patient_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="بیمار یافت نشد.")
+        return {"success": True, "message": "بیمار با موفقیت بایگانی شد."}
+    except Exception:
+        raise HTTPException(status_code=500, detail="خطا در حذف بیمار.")
 
 @app.post("/api/patients")
 def create_patient(payload: CreatePatientRequest) -> dict:
@@ -171,7 +185,7 @@ def create_patient(payload: CreatePatientRequest) -> dict:
         )
         return {"success": True, "patient_id": patient_id}
     except sqlite3.IntegrityError:
-        raise HTTPException(status_code=400, detail="این کد ملی قبلاً برای شخص دیگری در سیستم ثبت شده است.")
+        raise HTTPException(status_code=400, detail="این کد ملی قبلاً ثبت شده است.")
     except Exception:
         raise HTTPException(status_code=500, detail="خطا در ثبت بیمار جدید.")
 
