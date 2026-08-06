@@ -12,7 +12,7 @@ from utils.helpers import to_date_label
 
 run_migrations()
 
-app = FastAPI(title="Clinic Dashboard API", version="3.7.0")
+app = FastAPI(title="Clinic Dashboard API", version="3.8.0")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -176,7 +176,7 @@ def override_slots(payload: ScheduleConfigOverride, background_tasks: Background
     return {"success": True}
 
 @app.get("/api/schedule/overrides/list")
-def list_overrides() -> List[Dict[str, Any]]: return crud.get_overridden_dates()
+def list_overrides() -> Dict[str, Any]: return crud.get_overridden_dates()
 
 @app.delete("/api/schedule/override")
 def reset_override(date: str, service_id: int) -> dict:

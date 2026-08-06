@@ -87,8 +87,8 @@ export default function AppointmentsPage() {
   if (loading) return <div className="flex h-screen items-center justify-center"><div className="text-xl font-bold text-blue-600">در حال بارگذاری نوبت‌ها...</div></div>;
 
   return (
-    <div className="min-h-screen px-8 w-full relative bg-gray-50">
-      <header className="pt-12 pb-8 flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-2 border-b-transparent">
+    <div className="min-h-screen px-8 pt-12 pb-8 w-full relative bg-gray-50">
+      <header className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-8 border-b-transparent">
         <h1 className="text-3xl font-bold text-gray-800 leading-none">مدیریت نوبت‌ها</h1>
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-center">
           <div className="relative w-full sm:w-80 h-11">
@@ -103,7 +103,7 @@ export default function AppointmentsPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-right">
             <thead className="bg-gray-50 border-b border-gray-100">
-              <tr><th className="p-4 text-gray-600 font-bold text-sm">کد پیگیری</th><th className="p-4 text-gray-600 font-bold text-sm">بیمار</th><th className="p-4 text-gray-600 font-bold text-sm">شماره تماس</th><th className="p-4 text-gray-600 font-bold text-sm">منبع</th><th className="p-4 text-gray-600 font-bold text-sm">خدمت</th><th className="p-4 text-gray-600 font-bold text-sm">تاریخ و ساعت</th><th className="p-4 text-gray-600 font-bold text-sm">وضعیت</th><th className="p-4 text-gray-600 font-bold text-sm text-center">عملیات</th></tr>
+              <tr><th className="p-4 text-gray-600 font-bold text-sm">کد پیگیری</th><th className="p-4 text-gray-600 font-bold text-sm">بیمار</th><th className="p-4 text-gray-600 font-bold text-sm">شماره تماس</th><th className="p-4 text-gray-600 font-bold text-sm text-center">منبع</th><th className="p-4 text-gray-600 font-bold text-sm">خدمت</th><th className="p-4 text-gray-600 font-bold text-sm">تاریخ و ساعت</th><th className="p-4 text-gray-600 font-bold text-sm text-center">وضعیت</th><th className="p-4 text-gray-600 font-bold text-sm text-center">عملیات</th></tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {currentRows.map((appt) => (
@@ -111,21 +111,27 @@ export default function AppointmentsPage() {
                   <td className="p-4 text-blue-600 font-mono font-bold text-sm bg-blue-50/30">{formatTrackingCode(appt.id)}</td>
                   <td className="p-4 text-gray-800 font-bold">{appt.first_name} {appt.last_name}</td>
                   <td className="p-4 text-gray-600 font-mono text-sm" dir="ltr">{appt.phone_number}</td>
-                  <td className="p-4 text-sm font-medium"><span className={appt.source === 'panel' ? "text-gray-600 bg-gray-50 px-2 py-1 rounded" : "text-blue-600 bg-blue-50 px-2 py-1 rounded"}>{appt.source === 'panel' ? "پنل منشی" : "ربات بله"}</span></td>
+                  <td className="p-4 text-sm font-medium flex justify-center">
+                    <div className={`flex items-center justify-center w-24 px-2 py-1.5 rounded-lg font-bold shadow-sm ${appt.source === 'panel' ? "text-gray-600 bg-gray-100" : "text-blue-600 bg-blue-50"}`}>
+                        {appt.source === 'panel' ? "پنل منشی" : "ربات بله"}
+                    </div>
+                  </td>
                   <td className="p-4 text-gray-800 font-bold">{getServiceDisplayName(appt.service_name, appt.gender)}</td>
                   <td className="p-4 text-gray-600 font-mono text-sm">{appt.appointment_date} | {appt.start_time}</td>
-                  <td className="p-4">
-                    <span className={`px-4 py-2 rounded-xl text-xs font-bold shadow-sm ${appt.status === 'scheduled' ? 'bg-blue-100 text-blue-700' : appt.status === 'accepted' ? 'bg-emerald-500 text-white' : appt.status === 'cancelled' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'}`}>
+                  <td className="p-4 flex justify-center">
+                    <div className={`flex items-center justify-center w-28 px-2 py-2 rounded-xl text-xs font-bold shadow-sm ${appt.status === 'scheduled' ? 'bg-blue-100 text-blue-700' : appt.status === 'accepted' ? 'bg-emerald-500 text-white' : appt.status === 'cancelled' ? 'bg-red-100 text-red-700' : 'bg-gray-100 text-gray-700'}`}>
                       {appt.status === 'scheduled' ? 'در انتظار' : appt.status === 'accepted' ? 'پذیرش شده' : appt.status === 'cancelled' ? 'لغو شده' : appt.status === 'no_show' ? 'عدم مراجعه' : appt.status}
-                    </span>
+                    </div>
                   </td>
-                  <td className="p-4 flex justify-center gap-2">
-                    {appt.status === 'scheduled' && (
-                      <>
-                        <button onClick={() => handleStatusChange(appt.id, 'accepted')} className="flex items-center gap-1.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer"><Check className="w-4 h-4" /> پذیرش</button>
-                        <button onClick={() => handleStatusChange(appt.id, 'cancelled')} className="flex items-center gap-1.5 bg-red-50 text-red-600 hover:bg-red-100 px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer"><X className="w-4 h-4" /> لغو</button>
-                      </>
-                    )}
+                  <td className="p-4">
+                    <div className="flex justify-center gap-2">
+                        {appt.status === 'scheduled' && (
+                        <>
+                            <button onClick={() => handleStatusChange(appt.id, 'accepted')} className="flex items-center justify-center w-24 gap-1.5 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-sm"><Check className="w-4 h-4" /> پذیرش</button>
+                            <button onClick={() => handleStatusChange(appt.id, 'cancelled')} className="flex items-center justify-center w-24 gap-1.5 bg-red-50 text-red-600 hover:bg-red-100 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-sm"><X className="w-4 h-4" /> لغو</button>
+                        </>
+                        )}
+                    </div>
                   </td>
                 </tr>
               ))}

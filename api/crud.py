@@ -2,10 +2,41 @@ import sqlite3
 import os
 import json
 from typing import List, Dict, Any, Optional
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(BASE_DIR, "data", "clinic_database.db")
+
+def _apply_patches():
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        try: cursor.execute("ALTER TABLE appointments ADD COLUMN source VARCHAR(50) DEFAULT 'bot'")
+        except sqlite3.OperationalError: pass
+        try: cursor.execute("ALTER TABLE patients ADD COLUMN is_active INTEGER DEFAULT 1")
+        except sqlite3.OperationalError: pass
+        try: cursor.execute("ALTER TABLE services ADD COLUMN has_gender INTEGER DEFAULT 0")
+        except sqlite3.OperationalError: pass
+        try: cursor.execute("ALTER TABLE services ADD COLUMN is_deleted INTEGER DEFAULT 0")
+        except sqlite3.OperationalError: pass
+        try: cursor.execute("ALTER TABLE services ADD COLUMN price INTEGER DEFAULT 0")
+        except sqlite3.OperationalError: pass
+        try: cursor.execute("CREATE TABLE IF NOT EXISTS overridden_dates (date VARCHAR, service_id INTEGER, PRIMARY KEY(date, service_id))")
+        except sqlite3.OperationalError: pass
+        try: cursor.execute("CREATE TABLE IF NOT EXISTS override_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, target_date VARCHAR, service_id INTEGER, service_name VARCHAR, details TEXT, status_msg VARCHAR, logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        except sqlite3.OperationalError: pass
+        
+        cursor.execute("UPDATE services SET has_gender = 1 WHERE name IN ('بادکش', 'حجامت عام', 'زالودرمانی') AND has_gender = 0")
+        conn.commit()
+    try:
+        config = get_schedule_config()
+        sync_future_slots(config)
+    except Exception: pass
+
+_apply_patches()
+
+def get_dict_cursor(conn):
+    conn.row_factory = sqlite3.Row
+    return conn.cursor()
 
 def get_schedule_config() -> Dict[str, Any]:
     with sqlite3.connect(DB_PATH) as conn:
@@ -87,36 +118,130 @@ def sync_future_slots(config: Dict[str, Any]):
                 for gender, times in s_times.items():
                     for t in times:
                         cursor.execute("INSERT INTO appointment_slots (service_id, appointment_date, start_time, gender, capacity) VALUES (?, ?, ?, ?, 1)", (int(s_id), date_str, t, gender))
+        
+        cursor.execute("SELECT o.date, o.service_id, s.name FROM overridden_dates o JOIN services s ON o.service_id = s.id")
+        active_overrides = cursor.fetchall()
+        for ov in active_overrides:
+            ov_date = datetime.strptime(ov[0], "%Y-%m-%d").date()
+            if ov_date < today:
+                cursor.execute("SELECT start_time, gender FROM appointment_slots WHERE appointment_date = ? AND service_id = ?", (ov[0], ov[1]))
+                slots = cursor.fetchall()
+                slots_data = [{"time": r[0], "gender": r[1]} for r in slots]
+                status_msg = "به طور کامل تا پایان روز اعمال شد"
+                cursor.execute("INSERT INTO override_logs (target_date, service_id, service_name, details, status_msg) VALUES (?, ?, ?, ?, ?)", (ov[0], ov[1], ov[2], json.dumps(slots_data), status_msg))
+                cursor.execute("DELETE FROM overridden_dates WHERE date = ? AND service_id = ?", (ov[0], ov[1]))
+
         conn.commit()
 
-def _apply_patches():
+def save_schedule_config(config: Dict[str, Any]):
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
-        try: cursor.execute("ALTER TABLE appointments ADD COLUMN source VARCHAR(50) DEFAULT 'bot'")
-        except sqlite3.OperationalError: pass
-        try: cursor.execute("ALTER TABLE patients ADD COLUMN is_active INTEGER DEFAULT 1")
-        except sqlite3.OperationalError: pass
-        try: cursor.execute("ALTER TABLE services ADD COLUMN has_gender INTEGER DEFAULT 0")
-        except sqlite3.OperationalError: pass
-        try: cursor.execute("ALTER TABLE services ADD COLUMN is_deleted INTEGER DEFAULT 0")
-        except sqlite3.OperationalError: pass
-        try: cursor.execute("ALTER TABLE services ADD COLUMN price INTEGER DEFAULT 0")
-        except sqlite3.OperationalError: pass
-        try: cursor.execute("CREATE TABLE IF NOT EXISTS overridden_dates (date VARCHAR, service_id INTEGER, PRIMARY KEY(date, service_id))")
-        except sqlite3.OperationalError: pass
-        
-        cursor.execute("UPDATE services SET has_gender = 1 WHERE name IN ('بادکش', 'حجامت عام', 'زالودرمانی') AND has_gender = 0")
+        cursor.execute("INSERT INTO settings (key, value, updated_at) VALUES ('schedule_config', ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = excluded.value", (json.dumps(config),))
         conn.commit()
-    try:
-        config = get_schedule_config()
-        sync_future_slots(config)
-    except Exception: pass
+    sync_future_slots(config)
 
-_apply_patches()
+def get_date_slots(target_date: str, service_id: int) -> List[Dict[str, Any]]:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = get_dict_cursor(conn)
+        cursor.execute("SELECT 1 FROM overridden_dates WHERE date = ? AND service_id = ?", (target_date, service_id))
+        is_overridden = cursor.fetchone() is not None
 
-def get_dict_cursor(conn):
-    conn.row_factory = sqlite3.Row
-    return conn.cursor()
+        if is_overridden:
+            cursor.execute("SELECT start_time as time, gender FROM appointment_slots WHERE appointment_date = ? AND service_id = ?", (target_date, service_id))
+            return [dict(row) for row in cursor.fetchall()]
+        else:
+            cursor.execute("SELECT value FROM settings WHERE key = 'schedule_config'")
+            row = cursor.fetchone()
+            if row and row["value"]:
+                try:
+                    config = json.loads(row["value"])
+                    target_dt = datetime.strptime(target_date, "%Y-%m-%d")
+                    wd = str(target_dt.weekday())
+                    if int(wd) not in config.get("working_days", []):
+                        return []
+                    weekly = config.get("weekly_times", {}).get(wd, {}).get(str(service_id))
+                    if weekly is None or len(weekly) == 0:
+                        weekly = config.get("default_times", {}).get(str(service_id), {})
+                    computed_slots = []
+                    for g, times in weekly.items():
+                        for t in times:
+                            computed_slots.append({"time": t, "gender": g})
+                    return computed_slots
+                except Exception: pass
+            return []
+
+def override_date_slots(target_date: str, service_id: int, new_slots: List[Dict[str, Any]]) -> List[int]:
+    cancelled_bale_ids = []
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = get_dict_cursor(conn)
+        cursor.execute("INSERT OR IGNORE INTO overridden_dates (date, service_id) VALUES (?, ?)", (target_date, service_id))
+        
+        valid_times = [s["time"] for s in new_slots]
+        if valid_times:
+            placeholders = ",".join("?" for _ in valid_times)
+            query_cancel = f"SELECT a.id, u.bale_user_id FROM appointments a JOIN patients p ON a.patient_id = p.id JOIN users u ON p.user_id = u.id WHERE a.appointment_date = ? AND a.service_id = ? AND a.start_time NOT IN ({placeholders}) AND a.status = 'scheduled'"
+            cursor.execute(query_cancel, [target_date, service_id] + valid_times)
+        else:
+            cursor.execute("SELECT a.id, u.bale_user_id FROM appointments a JOIN patients p ON a.patient_id = p.id JOIN users u ON p.user_id = u.id WHERE a.appointment_date = ? AND a.service_id = ? AND a.status = 'scheduled'", (target_date, service_id))
+            
+        for row in cursor.fetchall():
+            cursor.execute("UPDATE appointments SET status = 'cancelled' WHERE id = ?", (row["id"],))
+            if row["bale_user_id"]: cancelled_bale_ids.append(row["bale_user_id"])
+            
+        cursor.execute("DELETE FROM appointment_slots WHERE appointment_date = ? AND service_id = ?", (target_date, service_id))
+        for slot in new_slots:
+            cursor.execute("INSERT INTO appointment_slots (service_id, appointment_date, start_time, gender, capacity) VALUES (?, ?, ?, ?, 1)", (service_id, target_date, slot["time"], slot["gender"]))
+        conn.commit()
+    return cancelled_bale_ids
+
+def get_overridden_dates() -> Dict[str, Any]:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = get_dict_cursor(conn)
+        cursor.execute("""
+            SELECT o.date, o.service_id, s.name as service_name, s.has_gender
+            FROM overridden_dates o
+            JOIN services s ON o.service_id = s.id
+            ORDER BY o.date DESC
+        """)
+        active_overrides = [dict(row) for row in cursor.fetchall()]
+        for ov in active_overrides:
+            cursor.execute("SELECT start_time as time, gender FROM appointment_slots WHERE appointment_date = ? AND service_id = ?", (ov["date"], ov["service_id"]))
+            ov["slots"] = [dict(r) for r in cursor.fetchall()]
+            
+        cursor.execute("SELECT * FROM override_logs ORDER BY logged_at DESC LIMIT 100")
+        history_logs = [dict(row) for row in cursor.fetchall()]
+        for log in history_logs:
+            try: log["slots"] = json.loads(log["details"])
+            except: log["slots"] = []
+            
+        return {"active": active_overrides, "history": history_logs}
+
+def reset_override(target_date: str, service_id: int):
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        now = datetime.now()
+        target_dt = datetime.strptime(target_date, "%Y-%m-%d")
+        
+        cursor.execute("SELECT name FROM services WHERE id = ?", (service_id,))
+        s_row = cursor.fetchone()
+        s_name = s_row[0] if s_row else "نامشخص"
+        
+        cursor.execute("SELECT start_time as time, gender FROM appointment_slots WHERE appointment_date = ? AND service_id = ?", (target_date, service_id))
+        slots_data = [{"time": r[0], "gender": r[1]} for r in cursor.fetchall()]
+        
+        if now.date() < target_dt.date():
+            status_msg = "بدون فعالیت (پیش از رسیدن به تاریخ مقرر) لغو شد"
+        elif now.date() == target_dt.date():
+            status_msg = f"از ساعت 00:00 تا {now.strftime('%H:%M')} فعال بود و سپس توسط مدیر لغو شد"
+        else:
+            status_msg = "به طور کامل تا پایان روز اعمال شد"
+            
+        cursor.execute("INSERT INTO override_logs (target_date, service_id, service_name, details, status_msg) VALUES (?, ?, ?, ?, ?)", (target_date, service_id, s_name, json.dumps(slots_data), status_msg))
+        cursor.execute("DELETE FROM overridden_dates WHERE date = ? AND service_id = ?", (target_date, service_id))
+        conn.commit()
+        
+    config = get_schedule_config()
+    sync_future_slots(config)
 
 def get_dashboard_stats() -> Dict[str, Any]:
     with sqlite3.connect(DB_PATH) as conn:
@@ -155,66 +280,6 @@ def get_reports_stats() -> Dict[str, Any]:
         services_perf = [dict(r) for r in cursor.fetchall()]
         popular = services_perf[0]["name"] if services_perf else "---"
         return {"success_rate": success_rate, "popular_service": popular, "total_appointments": total_appts, "pending_appointments": pending_appts, "services_performance": services_perf}
-
-def save_schedule_config(config: Dict[str, Any]):
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO settings (key, value, updated_at) VALUES ('schedule_config', ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = excluded.value", (json.dumps(config),))
-        conn.commit()
-    sync_future_slots(config)
-
-def get_date_slots(target_date: str, service_id: int) -> List[Dict[str, Any]]:
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = get_dict_cursor(conn)
-        cursor.execute("SELECT start_time as time, gender FROM appointment_slots WHERE appointment_date = ? AND service_id = ?", (target_date, service_id))
-        return [dict(row) for row in cursor.fetchall()]
-
-def override_date_slots(target_date: str, service_id: int, new_slots: List[Dict[str, Any]]) -> List[int]:
-    cancelled_bale_ids = []
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = get_dict_cursor(conn)
-        cursor.execute("INSERT OR IGNORE INTO overridden_dates (date, service_id) VALUES (?, ?)", (target_date, service_id))
-        
-        valid_times = [s["time"] for s in new_slots]
-        if valid_times:
-            placeholders = ",".join("?" for _ in valid_times)
-            query_cancel = f"SELECT a.id, u.bale_user_id FROM appointments a JOIN patients p ON a.patient_id = p.id JOIN users u ON p.user_id = u.id WHERE a.appointment_date = ? AND a.service_id = ? AND a.start_time NOT IN ({placeholders}) AND a.status = 'scheduled'"
-            cursor.execute(query_cancel, [target_date, service_id] + valid_times)
-        else:
-            cursor.execute("SELECT a.id, u.bale_user_id FROM appointments a JOIN patients p ON a.patient_id = p.id JOIN users u ON p.user_id = u.id WHERE a.appointment_date = ? AND a.service_id = ? AND a.status = 'scheduled'", (target_date, service_id))
-            
-        for row in cursor.fetchall():
-            cursor.execute("UPDATE appointments SET status = 'cancelled' WHERE id = ?", (row["id"],))
-            if row["bale_user_id"]: cancelled_bale_ids.append(row["bale_user_id"])
-            
-        cursor.execute("DELETE FROM appointment_slots WHERE appointment_date = ? AND service_id = ?", (target_date, service_id))
-        for slot in new_slots:
-            cursor.execute("INSERT INTO appointment_slots (service_id, appointment_date, start_time, gender, capacity) VALUES (?, ?, ?, ?, 1)", (service_id, target_date, slot["time"], slot["gender"]))
-        conn.commit()
-    return cancelled_bale_ids
-
-def get_overridden_dates() -> List[Dict[str, Any]]:
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = get_dict_cursor(conn)
-        cursor.execute("""
-            SELECT o.date, o.service_id, s.name as service_name, s.has_gender
-            FROM overridden_dates o
-            JOIN services s ON o.service_id = s.id
-            ORDER BY o.date DESC
-        """)
-        overrides = [dict(row) for row in cursor.fetchall()]
-        for ov in overrides:
-            cursor.execute("SELECT start_time as time, gender FROM appointment_slots WHERE appointment_date = ? AND service_id = ?", (ov["date"], ov["service_id"]))
-            ov["slots"] = [dict(r) for r in cursor.fetchall()]
-        return overrides
-
-def reset_override(target_date: str, service_id: int):
-    with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM overridden_dates WHERE date = ? AND service_id = ?", (target_date, service_id))
-        conn.commit()
-    config = get_schedule_config()
-    sync_future_slots(config)
 
 def get_all_patients() -> List[Dict[str, Any]]:
     with sqlite3.connect(DB_PATH) as conn:
