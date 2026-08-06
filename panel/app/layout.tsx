@@ -14,16 +14,12 @@ export const metadata: Metadata = {
   description: "سیستم مدیریت نوبت‌دهی درمانگاه",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode; }>) {
   return (
     <html lang="fa" dir="rtl" className={vazirmatn.variable}>
       <body suppressHydrationWarning className="font-sans bg-gray-50 text-gray-900 antialiased flex h-screen overflow-hidden">
         <Sidebar />
-        <main className="flex-1 overflow-y-auto">
+        <main className="flex-1 overflow-y-auto bg-gray-50">
           {children}
         </main>
       </body>

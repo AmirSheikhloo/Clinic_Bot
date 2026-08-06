@@ -1,149 +1,719 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Save } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Save, Plus, X, Store, Stethoscope, Clock, Trash2, CalendarDays, AlertCircle, Edit, CheckCircle, History } from "lucide-react";
+import DatePicker, { DateObject } from "react-multi-date-picker";
+import persian from "react-date-object/calendars/persian";
+import persian_fa from "react-date-object/locales/persian_fa";
+import gregorian from "react-date-object/calendars/gregorian";
+import gregorian_en from "react-date-object/locales/gregorian_en";
+
+const custom_fa = { ...persian_fa, digits: ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] };
+const weekDaysMap = [ { id: 5, label: "شنبه" }, { id: 6, label: "یک‌شنبه" }, { id: 0, label: "دوشنبه" }, { id: 1, label: "سه‌شنبه" }, { id: 2, label: "چهارشنبه" }, { id: 3, label: "پنج‌شنبه" }, { id: 4, label: "جمعه" } ];
+
+interface Service { id: number; name: string; is_active: number; price: number; has_gender: number; }
+interface ScheduleConfig { working_days: number[]; booking_days_ahead: number; default_times: Record<string, Record<string, string[]>>; weekly_times: Record<string, Record<string, Record<string, string[]>>>; }
+interface ConfirmModalState { isOpen: boolean; title: string; message: string; type: 'danger' | 'warning' | 'success'; onConfirm: () => void; showCancel?: boolean; }
+interface OverriddenDate { date: string; service_id: number; service_name: string; has_gender: number; slots: { time: string, gender: string }[]; }
+
+const TimeInput = ({ value, onChange, onEnter }: { value: string, onChange: (val: string) => void, onEnter: () => void }) => {
+  const [h, m] = (value || "00:00").split(":");
+  const minuteRef = useRef<HTMLInputElement>(null);
+  const handleHourChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let val = e.target.value.replace(/\D/g, '');
+    if (!val) { onChange(`:${m}`); return; }
+    if (val.length > 2) val = val.slice(-2);
+    if (val === "24") val = "00"; else if (parseInt(val) > 23) val = val.slice(-1);
+    if (val.length === 1 && parseInt(val) >= 3) val = '0' + val;
+    onChange(`${val}:${m}`);
+    if (val.length === 2) minuteRef.current?.focus();
+  };
+  const handleMinuteChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    let val = e.target.value.replace(/\D/g, '');
+    if (!val) { onChange(`${h}:`); return; }
+    if (val.length > 2) val = val.slice(-2);
+    if (parseInt(val) > 59) val = val.slice(-1);
+    if (val.length === 1 && parseInt(val) >= 6) val = '0' + val;
+    onChange(`${h}:${val}`);
+  };
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => { if (e.key === 'Enter') { e.preventDefault(); onEnter(); } };
+  return (
+    <div className="flex items-center justify-center w-32 px-2 h-12 border border-gray-200 rounded-xl focus-within:ring-2 focus-within:ring-blue-500 bg-white transition-all shadow-sm" dir="ltr">
+      <input type="tel" value={h} onChange={handleHourChange} onKeyDown={handleKeyDown} className="w-8 text-center font-mono text-lg outline-none bg-transparent" placeholder="00" />
+      <span className="font-extrabold text-gray-400 mx-1">:</span>
+      <input ref={minuteRef} type="tel" value={m} onChange={handleMinuteChange} onKeyDown={handleKeyDown} className="w-8 text-center font-mono text-lg outline-none bg-transparent" placeholder="00" />
+    </div>
+  );
+};
 
 export default function SettingsPage() {
-  const [settings, setSettings] = useState({
-    clinic_name: "",
-    clinic_phone: "",
-    clinic_address: "",
-    working_hours: "",
-  });
-  const [loading, setLoading] = useState(true);
-  const [savingMessage, setSavingMessage] = useState("");
+  const [activeTab, setActiveTab] = useState<'general' | 'services' | 'schedule'>('general');
+  const [scheduleSubTab, setScheduleSubTab] = useState<'defaults' | 'overrides'>('defaults');
+  const [overrideListMode, setOverrideListMode] = useState<'future' | 'history'>('future');
+  
+  const [settings, setSettings] = useState({ clinic_name: "", clinic_address: "", working_hours_text: "" });
+  const [phones, setPhones] = useState<string[]>([""]);
+  
+  const [services, setServices] = useState<Service[]>([]);
+  const [editServiceId, setEditServiceId] = useState<number | null>(null);
+  const [newServiceName, setNewServiceName] = useState("");
+  const [newServicePrice, setNewServicePrice] = useState("");
+  const [newServiceGender, setNewServiceGender] = useState<number>(0);
+  
+  const [scheduleConfig, setScheduleConfig] = useState<ScheduleConfig>({ working_days: [5,6,0,1,2,3], booking_days_ahead: 7, default_times: {}, weekly_times: {} });
+  
+  const [selectedServiceId, setSelectedServiceId] = useState("");
+  const [selectedGender, setSelectedGender] = useState("both");
+  const [targetDay, setTargetDay] = useState("all");
+  
+  const [newDefaultTime, setNewDefaultTime] = useState("14:00");
+  const [newOverrideTime, setNewOverrideTime] = useState("14:00");
+  
+  const [overrideDateObj, setOverrideDateObj] = useState<DateObject>(new DateObject({ calendar: persian, locale: custom_fa }));
+  const [overrideSlots, setOverrideSlots] = useState<{time: string, gender: string}[]>([]);
+  const [bulkSelected, setBulkSelected] = useState<string[]>([]);
+  const [overrideList, setOverrideList] = useState<OverriddenDate[]>([]);
 
-  useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const res = await fetch("http://127.0.0.1:8000/api/settings");
-        const data = await res.json();
-        setSettings({
-          clinic_name: data.clinic_name || "",
-          clinic_phone: data.clinic_phone || "",
-          clinic_address: data.clinic_address || "",
-          working_hours: data.working_hours || "",
-        });
-      } catch (error) {
-        console.error("Error fetching settings:", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchSettings();
+  const [loading, setLoading] = useState(true);
+  const [confirmModal, setConfirmModal] = useState<ConfirmModalState | null>(null);
+
+  const fetchOverrideList = useCallback(async () => {
+    try {
+      const res = await fetch("http://127.0.0.1:8000/api/schedule/overrides/list");
+      setOverrideList(await res.json());
+    } catch {}
   }, []);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setSettings({ ...settings, [e.target.name]: e.target.value });
+  const fetchData = useCallback(async () => {
+    try {
+      const resSet = await fetch("http://127.0.0.1:8000/api/settings");
+      const dataSet = await resSet.json();
+      setSettings({ clinic_name: dataSet.clinic_name || "", clinic_address: dataSet.clinic_address || "", working_hours_text: dataSet.working_hours_text || "" });
+      
+      const phoneData = dataSet.clinic_phone || "";
+      let parsedPhones = [""];
+      if (phoneData.includes("یا")) {
+        parsedPhones = phoneData.split("یا").map((p: string) => p.trim().replace(/\D/g, ''));
+        if (parsedPhones[0]?.includes("462")) parsedPhones.reverse();
+      } else if (phoneData.startsWith("[")) {
+        try { parsedPhones = JSON.parse(phoneData); } catch {}
+      } else { parsedPhones = [phoneData.replace(/\D/g, '')]; }
+      setPhones(parsedPhones.filter(Boolean).length ? parsedPhones.filter(Boolean) : [""]);
+
+      const resServ = await fetch("http://127.0.0.1:8000/api/services/all"); 
+      const servicesData: Service[] = await resServ.json();
+      setServices(servicesData);
+
+      const resSched = await fetch("http://127.0.0.1:8000/api/settings/schedule");
+      const schedData = await resSched.json();
+      if (schedData && Object.keys(schedData).length > 0) {
+        setScheduleConfig({
+          working_days: schedData.working_days || [5,6,0,1,2,3],
+          booking_days_ahead: schedData.booking_days_ahead || 7,
+          default_times: schedData.default_times || {},
+          weekly_times: schedData.weekly_times || {}
+        });
+      }
+
+      const allBulk = servicesData.flatMap(s => s.has_gender === 1 ? [`${s.id}-male`, `${s.id}-female`] : [`${s.id}-all`]);
+      setBulkSelected(allBulk);
+
+      fetchOverrideList();
+    } catch {
+    } finally { setLoading(false); }
+  }, [fetchOverrideList]);
+
+  useEffect(() => { const init = async () => { await fetchData(); }; init(); }, [fetchData]);
+
+  const handleSettingChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { setSettings({ ...settings, [e.target.name]: e.target.value }); };
+  const handlePhoneChange = (index: number, val: string) => { const newP = [...phones]; newP[index] = val.replace(/\D/g, ''); setPhones(newP); };
+  const addPhone = () => setPhones([...phones, ""]);
+  const removePhone = (index: number) => { const newP = phones.filter((_, i) => i !== index); setPhones(newP.length ? newP : [""]); };
+  const handleSaveGeneral = async () => {
+    setConfirmModal({ isOpen: true, title: "لطفاً صبر کنید...", type: 'warning', message: "در حال ذخیره اطلاعات...", showCancel: false, onConfirm: () => {} });
+    try {
+      await fetch("http://127.0.0.1:8000/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "clinic_name", value: settings.clinic_name }) });
+      await fetch("http://127.0.0.1:8000/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "clinic_address", value: settings.clinic_address }) });
+      await fetch("http://127.0.0.1:8000/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "working_hours_text", value: settings.working_hours_text }) });
+      await fetch("http://127.0.0.1:8000/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: "clinic_phone", value: JSON.stringify(phones.filter(p => p.trim())) }) });
+      setConfirmModal({ isOpen: true, title: "موفقیت", type: 'success', message: "اطلاعات درمانگاه با موفقیت ذخیره شد.", showCancel: false, onConfirm: () => setConfirmModal(null) });
+    } catch { setConfirmModal({ isOpen: true, title: "خطا", type: 'danger', message: "مشکلی در ارتباط با سرور رخ داد.", showCancel: false, onConfirm: () => setConfirmModal(null) }); }
   };
 
-  const handleSave = async (key: string, value: string) => {
-    setSavingMessage("در حال ذخیره...");
+  const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => { const raw = e.target.value.replace(/\D/g, ''); setNewServicePrice(raw ? parseInt(raw).toLocaleString() : ""); };
+  const handleToggleService = async (id: number, currentStatus: number) => { try { await fetch(`http://127.0.0.1:8000/api/services/${id}/toggle`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ is_active: currentStatus === 1 ? 0 : 1 }) }); fetchData(); } catch {} };
+  const confirmDeleteService = (id: number, name: string) => { setConfirmModal({ isOpen: true, title: "حذف کامل خدمت", type: 'danger', showCancel: true, message: `آیا از حذف کامل خدمت «${name}» اطمینان دارید؟ این عمل قابل بازگشت نیست، اما تاریخچه نوبت‌های قبلی در سیستم حفظ خواهد شد.`, onConfirm: async () => { try { await fetch(`http://127.0.0.1:8000/api/services/${id}`, { method: "DELETE" }); fetchData(); setConfirmModal(null); } catch {} } }); };
+  const startEditService = (s: Service) => { setEditServiceId(s.id); setNewServiceName(s.name); setNewServicePrice(s.price ? s.price.toLocaleString() : ""); setNewServiceGender(s.has_gender); };
+  const cancelEditService = () => { setEditServiceId(null); setNewServiceName(""); setNewServicePrice(""); setNewServiceGender(0); };
+  const handleSaveService = async (e: React.FormEvent) => {
+    e.preventDefault(); if (!newServiceName.trim()) return;
+    const price = parseInt(newServicePrice.replace(/\D/g, '')) || 0;
+    if (services.some(s => s.name.trim() === newServiceName.trim() && s.id !== editServiceId)) { setConfirmModal({ isOpen: true, title: "خطا", type: 'danger', message: "خدمتی با این نام از قبل وجود دارد.", showCancel: false, onConfirm: () => setConfirmModal(null) }); return; }
     try {
-      const res = await fetch("http://127.0.0.1:8000/api/settings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key, value }),
-      });
-      if (res.ok) {
-        setSavingMessage("با موفقیت ذخیره شد!");
-        setTimeout(() => setSavingMessage(""), 3000);
+      let res;
+      if (editServiceId) res = await fetch(`http://127.0.0.1:8000/api/services/${editServiceId}`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newServiceName, price, has_gender: newServiceGender }) });
+      else res = await fetch("http://127.0.0.1:8000/api/services", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newServiceName, price, has_gender: newServiceGender }) });
+      if(!res.ok) { setConfirmModal({ isOpen: true, title: "خطا", type: 'danger', message: "خطا در ثبت خدمت در سرور.", showCancel: false, onConfirm: () => setConfirmModal(null) }); return; }
+      cancelEditService(); fetchData();
+    } catch { setConfirmModal({ isOpen: true, title: "خطا", type: 'danger', message: "خطا در ارتباط با سرور.", showCancel: false, onConfirm: () => setConfirmModal(null) }); }
+  };
+
+  const toggleWorkingDay = (dayId: number) => { const isWorking = scheduleConfig.working_days.includes(dayId); setScheduleConfig({ ...scheduleConfig, working_days: isWorking ? scheduleConfig.working_days.filter(d => d !== dayId) : [...scheduleConfig.working_days, dayId] }); };
+  const handleDaysAheadChange = (val: string) => { let num = parseInt(val.replace(/\D/g, ''), 10); if (isNaN(num)) num = 1; if (num > 31) num = 31; setScheduleConfig({...scheduleConfig, booking_days_ahead: num}); };
+  const toggleBulkItem = (val: string) => { if (bulkSelected.includes(val)) setBulkSelected(bulkSelected.filter(v => v !== val)); else setBulkSelected([...bulkSelected, val]); };
+
+  const addDefaultTime = () => {
+    if (!selectedServiceId || newDefaultTime.includes("_")) return;
+    setScheduleConfig(prev => {
+      const newConfig = JSON.parse(JSON.stringify(prev));
+      if (!newConfig.weekly_times) newConfig.weekly_times = {};
+
+      if (selectedServiceId === 'ALL') {
+        bulkSelected.forEach(val => {
+          const [sId, g] = val.split('-');
+          if (targetDay === 'all') {
+            if (!newConfig.default_times[sId]) newConfig.default_times[sId] = {};
+            if (!newConfig.default_times[sId][g]) newConfig.default_times[sId][g] = [];
+            if (!newConfig.default_times[sId][g].includes(newDefaultTime)) newConfig.default_times[sId][g].push(newDefaultTime);
+          } else {
+            if (!newConfig.weekly_times[targetDay]) newConfig.weekly_times[targetDay] = {};
+            if (!newConfig.weekly_times[targetDay][sId]) newConfig.weekly_times[targetDay][sId] = {};
+            if (!newConfig.weekly_times[targetDay][sId][g]) newConfig.weekly_times[targetDay][sId][g] = [];
+            if (!newConfig.weekly_times[targetDay][sId][g].includes(newDefaultTime)) newConfig.weekly_times[targetDay][sId][g].push(newDefaultTime);
+          }
+        });
+      } else {
+        const sId = selectedServiceId;
+        const isGendered = services.find(s => s.id.toString() === sId)?.has_gender === 1;
+        let targets = ['all'];
+        if (isGendered) targets = (selectedGender === 'both') ? ['male', 'female'] : [selectedGender];
+        
+        targets.forEach(g => {
+          if (targetDay === 'all') {
+            if (!newConfig.default_times[sId]) newConfig.default_times[sId] = {};
+            if (!newConfig.default_times[sId][g]) newConfig.default_times[sId][g] = [];
+            if (!newConfig.default_times[sId][g].includes(newDefaultTime)) newConfig.default_times[sId][g].push(newDefaultTime);
+          } else {
+            if (!newConfig.weekly_times[targetDay]) newConfig.weekly_times[targetDay] = {};
+            if (!newConfig.weekly_times[targetDay][sId]) newConfig.weekly_times[targetDay][sId] = {};
+            if (!newConfig.weekly_times[targetDay][sId][g]) newConfig.weekly_times[targetDay][sId][g] = [];
+            if (!newConfig.weekly_times[targetDay][sId][g].includes(newDefaultTime)) newConfig.weekly_times[targetDay][sId][g].push(newDefaultTime);
+          }
+        });
       }
-    } catch (error) {
-      setSavingMessage("خطا در ذخیره‌سازی!");
-      setTimeout(() => setSavingMessage(""), 3000);
+      return newConfig;
+    });
+  };
+
+  const removeDefaultTime = (sId: string, g: string, time: string) => {
+    setScheduleConfig(prev => {
+      const newConfig = JSON.parse(JSON.stringify(prev));
+      if (targetDay === 'all') {
+        if (newConfig.default_times[sId] && newConfig.default_times[sId][g]) {
+          newConfig.default_times[sId][g] = newConfig.default_times[sId][g].filter((t: string) => t !== time);
+        }
+      } else {
+        if (newConfig.weekly_times[targetDay] && newConfig.weekly_times[targetDay][sId] && newConfig.weekly_times[targetDay][sId][g]) {
+          newConfig.weekly_times[targetDay][sId][g] = newConfig.weekly_times[targetDay][sId][g].filter((t: string) => t !== time);
+        }
+      }
+      return newConfig;
+    });
+  };
+
+  const handleSaveScheduleConfig = async () => {
+    setConfirmModal({ isOpen: true, title: "لطفاً صبر کنید...", type: 'warning', message: "در حال ساخت تقویم سیستم...", showCancel: false, onConfirm: () => {} });
+    try {
+      await fetch("http://127.0.0.1:8000/api/settings/schedule", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(scheduleConfig) });
+      setConfirmModal({ isOpen: true, title: "موفقیت", type: 'success', message: "تقویم و ساعات کاری با موفقیت روی ربات اعمال شد.", showCancel: false, onConfirm: () => setConfirmModal(null) });
+      fetchOverrideList();
+    } catch { setConfirmModal({ isOpen: true, title: "خطا", type: 'danger', message: "خطا در بروزرسانی تقویم.", showCancel: false, onConfirm: () => setConfirmModal(null) }); }
+  };
+
+  const getGregorianDateString = (dObj: DateObject) => new DateObject(dObj).convert(gregorian, gregorian_en).format("YYYY-MM-DD");
+  const formatToJalali = (gregorianDateStr: string) => new DateObject({ date: gregorianDateStr, format: "YYYY-MM-DD", calendar: gregorian, locale: gregorian_en }).convert(persian, custom_fa).format("YYYY/MM/DD");
+
+  const fetchOverrideSlots = useCallback(async () => {
+    const dateStr = getGregorianDateString(overrideDateObj);
+    if (!dateStr || !selectedServiceId || selectedServiceId === 'ALL') return;
+    try {
+      const res = await fetch(`http://127.0.0.1:8000/api/schedule/slots?date=${dateStr}&service_id=${selectedServiceId}`);
+      setOverrideSlots(await res.json());
+    } catch {}
+  }, [overrideDateObj, selectedServiceId]);
+
+  useEffect(() => { const init = async () => { await fetchOverrideSlots(); }; init(); }, [fetchOverrideSlots]);
+
+  const addOverrideTime = () => {
+    if (!newOverrideTime.includes("_") && selectedServiceId !== 'ALL') {
+      const isGendered = services.find(s => s.id.toString() === selectedServiceId)?.has_gender === 1;
+      let targets = ['all'];
+      if(isGendered) targets = (selectedGender === 'both') ? ['male', 'female'] : [selectedGender];
+      
+      setOverrideSlots(prev => {
+        const newSlots = [...prev];
+        targets.forEach(g => { if (!newSlots.find(s => s.time === newOverrideTime && s.gender === g)) newSlots.push({ time: newOverrideTime, gender: g }); });
+        return newSlots;
+      });
     }
   };
 
-  const handleSaveAll = async () => {
-    await handleSave("clinic_name", settings.clinic_name);
-    await handleSave("clinic_phone", settings.clinic_phone);
-    await handleSave("clinic_address", settings.clinic_address);
-    await handleSave("working_hours", settings.working_hours);
+  const confirmSaveOverride = () => {
+    const dateStr = getGregorianDateString(overrideDateObj);
+    const dateFa = overrideDateObj.format("YYYY/MM/DD");
+    if (!dateStr || !selectedServiceId || selectedServiceId === 'ALL') return;
+    setConfirmModal({
+      isOpen: true, title: "اعمال تغییرات روی تاریخ خاص", type: 'warning', showCancel: true,
+      message: `شما در حال تغییر ساعات رزرو برای تاریخ ${dateFa} هستید. آیا مایل به ادامه هستید؟`,
+      onConfirm: async () => {
+        setConfirmModal({ isOpen: true, title: "لطفاً صبر کنید...", type: 'warning', message: "در حال ثبت اطلاعات...", showCancel: false, onConfirm: () => {} });
+        try {
+          await fetch("http://127.0.0.1:8000/api/schedule/override", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ date: dateStr, service_id: parseInt(selectedServiceId), slots: overrideSlots }) });
+          setConfirmModal({ isOpen: true, title: "موفقیت", type: 'success', message: "تغییرات با موفقیت روی این روز اعمال شد.", showCancel: false, onConfirm: () => setConfirmModal(null) });
+          fetchOverrideList();
+        } catch { setConfirmModal({ isOpen: true, title: "خطا", type: 'danger', message: "خطا در اعمال تغییرات.", showCancel: false, onConfirm: () => setConfirmModal(null) }); }
+      }
+    });
   };
 
-  if (loading) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <div className="text-xl font-bold text-blue-600">در حال بارگذاری تنظیمات...</div>
-      </div>
-    );
-  }
+  const resetOverride = (dateStr: string, sId: number) => {
+    setConfirmModal({
+      isOpen: true, title: "بازنشانی به تنظیمات پایه", type: 'warning', showCancel: true,
+      message: `آیا مایلید تغییرات اختصاصی این تاریخ پاک شود و دوباره از تنظیمات پیش‌فرض (پایه) ارث‌بری کند؟`,
+      onConfirm: async () => {
+        setConfirmModal({ isOpen: true, title: "لطفاً صبر کنید...", type: 'warning', message: "در حال بازنشانی...", showCancel: false, onConfirm: () => {} });
+        try {
+          await fetch(`http://127.0.0.1:8000/api/schedule/override?date=${dateStr}&service_id=${sId}`, { method: "DELETE" });
+          if (getGregorianDateString(overrideDateObj) === dateStr && parseInt(selectedServiceId) === sId) fetchOverrideSlots();
+          fetchOverrideList();
+          setConfirmModal({ isOpen: true, title: "موفقیت", type: 'success', message: "این روز به تنظیمات پایه بازگشت.", showCancel: false, onConfirm: () => setConfirmModal(null) });
+        } catch { setConfirmModal({ isOpen: true, title: "خطا", type: 'danger', message: "خطا در بازنشانی.", showCancel: false, onConfirm: () => setConfirmModal(null) }); }
+      }
+    });
+  };
+
+  const loadOverrideToEditor = (item: OverriddenDate) => {
+    const dObj = new DateObject({ date: item.date, format: "YYYY-MM-DD", calendar: gregorian, locale: gregorian_en }).convert(persian, custom_fa);
+    setOverrideDateObj(dObj);
+    setSelectedServiceId(item.service_id.toString());
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleServiceSelection = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    setSelectedServiceId(val);
+    if (val !== 'ALL') {
+      const serviceObj = services.find(s => s.id.toString() === val);
+      setSelectedGender(serviceObj?.has_gender === 1 ? "both" : "all");
+    }
+  };
+
+  const isSelectedServiceGendered = services.find(s => s.id.toString() === selectedServiceId)?.has_gender === 1;
+
+  const renderDefaultScheduleBoxes = () => {
+    if (!selectedServiceId || selectedServiceId === 'ALL') {
+      return <p className="text-gray-400 font-bold text-sm bg-white p-4 rounded-xl border border-gray-200 border-dashed text-center">یک خدمت انتخاب کنید تا ساعت‌های فعال آن نمایش داده شود.</p>;
+    }
+    
+    let displayGenders = [];
+    if (!isSelectedServiceGendered) displayGenders = ['all'];
+    else {
+      if (selectedGender === 'both') displayGenders = ['male', 'female'];
+      else if (selectedGender === 'male') displayGenders = ['male'];
+      else if (selectedGender === 'female') displayGenders = ['female'];
+      else displayGenders = ['male', 'female'];
+    }
+
+    const elements = displayGenders.map(g => {
+      let times = [];
+      if (targetDay === 'all') times = scheduleConfig.default_times?.[selectedServiceId]?.[g] || [];
+      else {
+        const weekly = scheduleConfig.weekly_times?.[targetDay]?.[selectedServiceId]?.[g];
+        if (weekly !== undefined) times = weekly;
+        else times = scheduleConfig.default_times?.[selectedServiceId]?.[g] || [];
+      }
+
+      if (times.length === 0) return null;
+      const genderLabel = g === "male" ? "مخصوص آقایان" : g === "female" ? "مخصوص بانوان" : "عمومی";
+      return (
+        <div key={g} className="flex flex-col sm:flex-row sm:items-center gap-4 p-5 bg-white rounded-xl border border-gray-200 shadow-sm">
+          <span className="font-bold text-sm text-gray-500 w-32 shrink-0">{genderLabel}</span>
+          <div className="flex flex-wrap gap-4 flex-1">
+            {[...times].sort().map(t => (
+              <div key={t} className="relative inline-flex items-center justify-center px-4 py-2.5 bg-slate-50 text-slate-800 rounded-xl font-mono text-lg font-bold border border-slate-200 shadow-sm group">
+                {t}
+                <button onClick={() => removeDefaultTime(selectedServiceId, g, t)} className="absolute -top-2 -right-2 bg-white text-red-500 hover:bg-red-500 hover:text-white border border-red-200 rounded-full p-1 shadow-sm transition-all opacity-0 group-hover:opacity-100 cursor-pointer"><X className="w-3.5 h-3.5"/></button>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    });
+
+    return elements.every(el => el === null) ? <p className="text-gray-400 font-bold text-sm bg-white p-4 rounded-xl border border-gray-200 border-dashed text-center">تایمی برای این حالت تنظیم نشده است.</p> : elements;
+  };
+
+  const renderOverrideScheduleBoxes = () => {
+    if (!selectedServiceId || selectedServiceId === 'ALL') {
+      return <p className="text-gray-400 font-bold text-sm bg-white p-4 rounded-xl border border-gray-200 border-dashed text-center">یک خدمت انتخاب کنید.</p>;
+    }
+    if (overrideSlots.length === 0) return <p className="text-gray-400 font-bold m-auto">هیچ نوبتی برای این روز تعریف نشده است (تعطیل).</p>;
+    
+    let displayGenders = [];
+    if (!isSelectedServiceGendered) displayGenders = ['all'];
+    else {
+      if (selectedGender === 'both') displayGenders = ['male', 'female'];
+      else if (selectedGender === 'male') displayGenders = ['male'];
+      else if (selectedGender === 'female') displayGenders = ['female'];
+      else displayGenders = ['male', 'female'];
+    }
+
+    const elements = displayGenders.map(g => {
+      const times = overrideSlots.filter(s => s.gender === g);
+      if (times.length === 0) return null;
+      const genderLabel = g === "male" ? "مخصوص آقایان" : g === "female" ? "مخصوص بانوان" : "عمومی";
+      return (
+        <div key={g} className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm w-full">
+          <span className="font-bold text-sm text-gray-500 w-32 shrink-0">{genderLabel}</span>
+          <div className="flex flex-wrap gap-4 flex-1">
+            {[...times].sort((a,b)=>a.time.localeCompare(b.time)).map((slot, idx) => (
+              <div key={idx} className="relative inline-flex flex-col items-center justify-center p-3 bg-white rounded-xl border border-gray-200 shadow-sm group">
+                <span className="text-lg font-mono font-bold text-slate-800 leading-none">{slot.time}</span>
+                <button onClick={() => setOverrideSlots(prev => prev.filter(s => !(s.time === slot.time && s.gender === g)))} className="absolute -top-2 -right-2 bg-white border border-red-200 text-red-500 hover:bg-red-500 hover:text-white rounded-full p-1 shadow-sm opacity-0 group-hover:opacity-100 transition-all cursor-pointer"><X className="w-3.5 h-3.5"/></button>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    });
+
+    return elements.every(el => el === null) ? <p className="text-gray-400 font-bold m-auto">هیچ نوبتی برای این حالت تعریف نشده است.</p> : elements;
+  };
+
+  if (loading) return <div className="flex h-screen items-center justify-center"><div className="text-xl font-bold text-blue-600">بارگذاری تنظیمات...</div></div>;
+
+  const todayStr = new DateObject({ calendar: gregorian }).format("YYYY-MM-DD");
+  const filteredOverrideList = overrideListMode === 'future' ? overrideList.filter(o => o.date >= todayStr) : overrideList.filter(o => o.date < todayStr);
 
   return (
-    <div className="min-h-screen p-8">
-      <header className="mb-8 flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-800">تنظیمات سیستم</h1>
-        {savingMessage && (
-          <span className={`px-4 py-2 rounded-lg text-sm font-medium ${savingMessage.includes('خطا') ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`}>
-            {savingMessage}
-          </span>
-        )}
+    <div className="min-h-screen px-8 pt-10 pb-8 w-full relative bg-gray-50">
+      <header className="flex items-center justify-between mb-8 border-b-transparent">
+        <h1 className="text-3xl font-bold text-gray-800 leading-none">تنظیمات سیستم</h1>
       </header>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden max-w-3xl">
-        <div className="p-6 space-y-6">
-          
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">نام درمانگاه</label>
-            <input
-              type="text"
-              name="clinic_name"
-              value={settings.clinic_name}
-              onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-              placeholder="مثال: درمانگاه طب سنتی"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">شماره‌های تماس (نمایش در ربات)</label>
-            <input
-              type="text"
-              name="clinic_phone"
-              value={settings.clinic_phone}
-              onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-              placeholder="مثال: 02146292250"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">ساعات و روزهای کاری</label>
-            <input
-              type="text"
-              name="working_hours"
-              value={settings.working_hours}
-              onChange={handleChange}
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
-              placeholder="مثال: همه‌روزه به جز جمعه‌ها"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">آدرس دقیق درمانگاه</label>
-            <textarea
-              name="clinic_address"
-              value={settings.clinic_address}
-              onChange={handleChange}
-              rows={3}
-              className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all resize-none"
-              placeholder="آدرس کامل جهت نمایش به بیماران در ربات..."
-            />
-          </div>
-
-          <div className="pt-4 border-t border-gray-100 flex justify-end">
-            <button
-              onClick={handleSaveAll}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium transition-colors shadow-sm"
-            >
-              <Save className="w-5 h-5" />
-              ذخیره تمام تنظیمات
-            </button>
-          </div>
-
-        </div>
+      <div className="flex gap-2 border-b border-gray-200 mb-8 overflow-x-auto">
+        <button onClick={() => setActiveTab('general')} className={`px-6 py-4 font-bold text-sm flex items-center gap-2 border-b-2 cursor-pointer transition-colors whitespace-nowrap ${activeTab === 'general' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t-xl'}`}><Store className="w-5 h-5"/> اطلاعات درمانگاه</button>
+        <button onClick={() => setActiveTab('services')} className={`px-6 py-4 font-bold text-sm flex items-center gap-2 border-b-2 cursor-pointer transition-colors whitespace-nowrap ${activeTab === 'services' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t-xl'}`}><Stethoscope className="w-5 h-5"/> مدیریت خدمات</button>
+        <button onClick={() => setActiveTab('schedule')} className={`px-6 py-4 font-bold text-sm flex items-center gap-2 border-b-2 cursor-pointer transition-colors whitespace-nowrap ${activeTab === 'schedule' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-t-xl'}`}><Clock className="w-5 h-5"/> تقویم و ساعات کاری</button>
       </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 w-full mb-8">
+        
+        {activeTab === 'general' && (
+          <div className="space-y-8 animate-fade-in max-w-3xl">
+            <div><label className="block text-sm font-bold text-gray-700 mb-2">نام درمانگاه</label><input type="text" name="clinic_name" value={settings.clinic_name} onChange={handleSettingChange} className="w-full px-4 h-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none shadow-sm" /></div>
+            
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">شماره‌های تماس (نمایش در ربات)</label>
+              <div className="space-y-3">
+                {phones.map((phone, index) => (
+                  <div key={index} className="flex gap-3">
+                    <input type="text" value={phone} onChange={e => handlePhoneChange(index, e.target.value)} className="flex-1 px-4 h-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono tracking-widest text-left shadow-sm" dir="ltr" placeholder="021..." />
+                    <button onClick={() => removePhone(index)} className="w-12 h-12 shrink-0 flex items-center justify-center bg-red-50 text-red-500 rounded-xl hover:bg-red-100 transition-colors cursor-pointer"><Trash2 className="w-5 h-5"/></button>
+                  </div>
+                ))}
+                <div className="flex gap-3 mt-3">
+                  <div className="flex-1"></div>
+                  <button onClick={addPhone} className="w-12 h-12 shrink-0 flex items-center justify-center bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors cursor-pointer"><Plus className="w-5 h-5"/></button>
+                </div>
+              </div>
+            </div>
+
+            <div><label className="block text-sm font-bold text-gray-700 mb-2">توضیحات زمان کاری (نمایش متنی)</label><input type="text" name="working_hours_text" value={settings.working_hours_text} onChange={handleSettingChange} placeholder="مثال: همه‌روزه به جز جمعه‌ها" className="w-full px-4 h-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none shadow-sm" /></div>
+            <div><label className="block text-sm font-bold text-gray-700 mb-2">آدرس دقیق درمانگاه</label><textarea name="clinic_address" value={settings.clinic_address} onChange={handleSettingChange} rows={3} className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none resize-none shadow-sm" /></div>
+            <div className="pt-4 border-t border-gray-100"><button onClick={handleSaveGeneral} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 h-12 rounded-xl font-bold shadow-sm cursor-pointer"><Save className="w-5 h-5" /> ذخیره اطلاعات</button></div>
+          </div>
+        )}
+
+        {activeTab === 'services' && (
+          <div className="animate-fade-in w-full">
+            <form onSubmit={handleSaveService} className="flex flex-col md:flex-row gap-4 mb-8 p-6 bg-gray-50 rounded-2xl border border-gray-100 shadow-sm items-end">
+              <div className="flex-1 w-full">
+                <label className="block text-xs font-bold text-gray-500 mb-1">نام خدمت</label>
+                <input type="text" value={newServiceName} onChange={e => setNewServiceName(e.target.value)} placeholder="مثال: فصد..." className="w-full px-4 h-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white shadow-sm" required />
+              </div>
+              <div className="w-full md:w-48">
+                <label className="block text-xs font-bold text-gray-500 mb-1">هزینه (تومان)</label>
+                <input type="text" value={newServicePrice} onChange={handlePriceChange} placeholder="۰ = رایگان / متغیر" className="w-full px-4 h-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white font-mono font-bold text-left placeholder:text-right placeholder-gray-400 shadow-sm" dir="rtl" />
+              </div>
+              <div className="w-full md:w-48">
+                <label className="block text-xs font-bold text-gray-500 mb-1">نوع خدمت</label>
+                <select value={newServiceGender} onChange={e => setNewServiceGender(parseInt(e.target.value))} className="w-full px-4 h-12 border border-gray-200 rounded-xl outline-none bg-white cursor-pointer font-bold text-sm shadow-sm">
+                  <option value={0}>عمومی</option>
+                  <option value={1}>تفکیک جنسیت دارد</option>
+                </select>
+              </div>
+              <div className="flex gap-2 w-full md:w-auto">
+                {editServiceId && <button type="button" onClick={cancelEditService} className="flex items-center justify-center bg-gray-200 hover:bg-gray-300 text-gray-700 w-12 h-12 rounded-xl transition-colors cursor-pointer"><X className="w-5 h-5"/></button>}
+                <button type="submit" className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-green-600 hover:bg-green-700 text-white px-8 h-12 rounded-xl font-bold shadow-sm cursor-pointer">{editServiceId ? <Save className="w-5 h-5"/> : <Plus className="w-5 h-5"/>} {editServiceId ? "ذخیره تغییرات" : "افزودن خدمت"}</button>
+              </div>
+            </form>
+            
+            <div className="space-y-3">
+              <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><Stethoscope className="w-5 h-5 text-blue-600" /> مدیریت خدمات سیستم</h3>
+              <div className="overflow-x-auto rounded-xl border border-gray-100">
+                <table className="w-full text-right">
+                  <thead className="bg-gray-50 border-b border-gray-100">
+                    <tr><th className="p-4 font-bold text-gray-600 text-sm">نام خدمت</th><th className="p-4 font-bold text-gray-600 text-sm text-center">هزینه (تومان)</th><th className="p-4 font-bold text-gray-600 text-sm text-center">تفکیک جنسیتی</th><th className="p-4 font-bold text-gray-600 text-sm text-center">وضعیت در ربات</th><th className="p-4 font-bold text-gray-600 text-sm text-center">عملیات</th></tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {services.map(s => (
+                      <tr key={s.id} className="hover:bg-gray-50 transition-colors">
+                        <td className={`p-4 font-bold ${s.is_active === 1 ? 'text-gray-800' : 'text-gray-400'}`}>{s.name}</td>
+                        <td className="p-4 text-center">
+                          {s.price > 0 ? <span className="font-mono text-gray-700 font-bold">{s.price.toLocaleString()}</span> : <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded font-bold text-xs">رایگان</span>}
+                        </td>
+                        <td className="p-4 text-center"><span className={`px-3 py-1.5 text-xs font-bold rounded-lg border ${s.has_gender === 1 ? 'bg-emerald-50 text-emerald-700 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'}`}>{s.has_gender === 1 ? 'دارد' : 'ندارد'}</span></td>
+                        <td className="p-4 text-center"><span className={`px-3 py-1.5 text-xs font-bold rounded-lg ${s.is_active === 1 ? 'bg-indigo-50 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>{s.is_active === 1 ? 'فعال' : 'غیرفعال (مخفی)'}</span></td>
+                        <td className="p-4 flex justify-center gap-2">
+                          <button onClick={() => handleToggleService(s.id, s.is_active)} title={s.is_active === 1 ? 'غیرفعال کردن' : 'فعال کردن'} className="p-2 bg-gray-100 text-gray-600 hover:bg-gray-200 rounded-lg cursor-pointer"><CheckCircle className="w-4 h-4"/></button>
+                          <button onClick={() => startEditService(s)} title="ویرایش" className="p-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-lg cursor-pointer"><Edit className="w-4 h-4"/></button>
+                          <button onClick={() => confirmDeleteService(s.id, s.name)} title="حذف کامل" className="p-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg cursor-pointer"><Trash2 className="w-4 h-4"/></button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'schedule' && (
+          <div className="animate-fade-in w-full">
+            <div className="flex gap-2 mb-6 border-b border-gray-100 pb-4">
+              <button onClick={() => setScheduleSubTab('defaults')} className={`px-4 py-2 font-bold rounded-xl text-sm transition-all cursor-pointer ${scheduleSubTab === 'defaults' ? 'bg-blue-100 text-blue-700' : 'bg-transparent text-gray-500 hover:bg-gray-50'}`}>تنظیمات پایه و پیش‌فرض</button>
+              <button onClick={() => setScheduleSubTab('overrides')} className={`px-4 py-2 font-bold rounded-xl text-sm transition-all cursor-pointer ${scheduleSubTab === 'overrides' ? 'bg-amber-100 text-amber-700' : 'bg-transparent text-gray-500 hover:bg-gray-50'}`}>تغییرات برای یک روز خاص</button>
+            </div>
+
+            {scheduleSubTab === 'defaults' && (
+              <div className="space-y-10 max-w-4xl">
+                <div>
+                  <label className="block text-sm font-bold text-gray-800 mb-3">روزهای کاری مطب (فعال در ربات)</label>
+                  <div className="flex flex-wrap gap-3">
+                    {weekDaysMap.map(day => {
+                      const isActive = scheduleConfig.working_days.includes(day.id);
+                      return (
+                        <button key={day.id} onClick={() => toggleWorkingDay(day.id)} className={`px-6 py-3 rounded-xl text-sm font-bold transition-all cursor-pointer shadow-sm ${isActive ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-white text-gray-400 border border-gray-200 hover:bg-gray-50'}`}>
+                          {day.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-gray-800 mb-3">بازه باز شدن نوبت‌ها در ربات</label>
+                  <div className="flex items-center gap-3 bg-gray-50 p-4 rounded-2xl border border-gray-100 w-max">
+                    <span className="text-gray-600 font-bold text-sm">کاربران می‌توانند تا</span>
+                    <input type="number" value={scheduleConfig.booking_days_ahead.toString()} onChange={e => handleDaysAheadChange(e.target.value)} className="w-20 px-3 h-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-center font-bold text-xl bg-white shadow-sm" min="1" max="31" />
+                    <span className="text-gray-600 font-bold text-sm">روز آینده را برای نوبت‌گیری مشاهده کنند.</span>
+                  </div>
+                </div>
+
+                <div className="border-t border-gray-100 pt-8">
+                  <h3 className="font-bold text-xl text-gray-800 mb-4 flex items-center gap-2"><Clock className="w-6 h-6 text-blue-600"/> برنامه‌ریزی ساعات پیش‌فرض برای هر خدمت</h3>
+                  
+                  <div className="mb-6 bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-center gap-4">
+                    <label className="text-sm font-bold text-blue-800 shrink-0">اعمال این تنظیمات روی:</label>
+                    <select value={targetDay} onChange={e => setTargetDay(e.target.value)} className="w-64 px-4 h-11 border border-blue-200 rounded-xl outline-none font-bold text-sm bg-white cursor-pointer shadow-sm text-blue-900">
+                      <option value="all">همه روزهای کاری (پیش‌فرض)</option>
+                      {weekDaysMap.map(d => <option key={d.id} value={d.id.toString()}>فقط {d.label}‌ها (اختصاصی)</option>)}
+                    </select>
+                  </div>
+
+                  <div className="bg-gray-50 p-6 rounded-2xl border border-gray-200 shadow-sm space-y-6">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-2">انتخاب خدمت</label>
+                        <select value={selectedServiceId} onChange={handleServiceSelection} className="w-full px-4 h-12 border border-gray-200 rounded-xl outline-none font-bold text-sm bg-white cursor-pointer shadow-sm">
+                          <option value="" disabled>انتخاب کنید...</option>
+                          <option value="ALL" className="font-black text-blue-700 bg-blue-50">همه خدمات (عملیات دسته‌جمعی)</option>
+                          <option disabled>──────────</option>
+                          {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      </div>
+                      
+                      {selectedServiceId !== 'ALL' ? (
+                        <>
+                          <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-2">تفکیک جنسیت</label>
+                            <select value={selectedGender} onChange={e => setSelectedGender(e.target.value)} disabled={!isSelectedServiceGendered} className="w-full px-4 h-12 border border-gray-200 rounded-xl outline-none font-bold text-sm bg-white disabled:opacity-50 disabled:bg-gray-100 cursor-pointer shadow-sm">
+                              {!isSelectedServiceGendered ? <option value="all">عمومی (بدون تفکیک)</option> :
+                              <><option value="both">هر دو (آقا و خانم)</option><option value="male">آقایان</option><option value="female">بانوان</option></>}
+                            </select>
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold text-gray-500 mb-2">اضافه کردن ساعت</label>
+                            <div className="flex gap-2">
+                              <TimeInput value={newDefaultTime} onChange={setNewDefaultTime} onEnter={addDefaultTime} />
+                              <button onClick={addDefaultTime} disabled={!selectedServiceId} className="flex-1 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 shadow-sm cursor-pointer">افزودن</button>
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="col-span-2">
+                            <label className="block text-xs font-bold text-gray-500 mb-2">اضافه کردن ساعت به <span className="text-blue-600 text-sm">تمامی موارد تیک‌خورده</span> در پایین:</label>
+                            <div className="flex gap-2 max-w-sm">
+                              <TimeInput value={newDefaultTime} onChange={setNewDefaultTime} onEnter={addDefaultTime} />
+                              <button onClick={addDefaultTime} className="flex-1 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 shadow-sm cursor-pointer">اعمال دسته‌جمعی</button>
+                            </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {selectedServiceId === 'ALL' && (
+                      <div className="pt-4 border-t border-gray-200 animate-fade-in">
+                        <p className="text-sm font-bold text-gray-700 mb-3">انتخاب سرویس‌هایی که ساعت بالا به آن‌ها اضافه شود:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {services.flatMap(s => s.has_gender === 1 ? [{id: s.id.toString(), g: 'male', label: s.name + ' (آقایان)'}, {id: s.id.toString(), g: 'female', label: s.name + ' (بانوان)'}] : [{id: s.id.toString(), g: 'all', label: s.name + ' (عمومی)'}]).map(sg => {
+                            const key = `${sg.id}-${sg.g}`;
+                            const isChecked = bulkSelected.includes(key);
+                            return (
+                              <label key={key} className={`flex items-center gap-2 cursor-pointer px-3 py-2 rounded-lg border transition-all ${isChecked ? 'bg-blue-50 border-blue-200 shadow-sm' : 'bg-white border-gray-200 opacity-60'}`}>
+                                <input type="checkbox" checked={isChecked} onChange={() => toggleBulkItem(key)} className="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500" />
+                                <span className={`text-sm font-bold ${isChecked ? 'text-blue-800' : 'text-gray-500'}`}>{sg.label}</span>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="pt-6 border-t border-gray-200">
+                      <p className="text-sm font-bold text-gray-700 mb-4">ساعت‌های فعال :</p>
+                      <div className="space-y-4">
+                        {renderDefaultScheduleBoxes()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-6 flex items-center justify-between border-t border-gray-100">
+                  <p className="text-xs text-gray-500 font-bold max-w-sm">⚠️ تغییرات این صفحه فقط زمانی ذخیره و روی ربات اعمال می‌شود که دکمه روبرو را کلیک کنید.</p>
+                  <button onClick={handleSaveScheduleConfig} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 h-12 rounded-xl font-bold shadow-md cursor-pointer"><Save className="w-5 h-5" /> ذخیره تقویم سیستم</button>
+                </div>
+              </div>
+            )}
+
+            {scheduleSubTab === 'overrides' && (
+              <div className="space-y-8 max-w-4xl">
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6 flex items-start gap-3">
+                  <AlertCircle className="w-6 h-6 text-amber-500 shrink-0 mt-0.5" />
+                  <p className="text-sm font-bold text-amber-800 leading-relaxed">
+                    با تغییر در این صفحه می‌توانید برای یک روزِ خاص، ساعت‌های متفاوتی تعریف کنید یا کل نوبت‌های آن روز را پاک کنید.<br/>
+                    <span className="text-red-600">اخطار:</span> حذف یک ساعتی که بیمار قبلاً در آن رزرو کرده باشد، نوبت وی را لغو می‌کند و ربات برایش پیام ارسال می‌نماید.
+                  </p>
+                </div>
+                
+                <div className="bg-white border border-gray-200 rounded-2xl p-6 flex flex-col md:flex-row gap-6 items-end shadow-sm">
+                  <div className="flex-1 w-full relative">
+                    <label className="flex items-center gap-2 text-sm font-bold text-gray-700 mb-2"><CalendarDays className="w-4 h-4"/> انتخاب تاریخ مورد نظر</label>
+                    <DatePicker calendar={persian} locale={custom_fa} value={overrideDateObj} onChange={(dateObject: DateObject | null) => { if (dateObject) setOverrideDateObj(dateObject); }} containerClassName="w-full" inputClass="w-full px-4 h-12 border border-gray-200 rounded-xl outline-none font-bold text-center bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:bg-white transition-colors cursor-pointer" editable={false} />
+                  </div>
+                  <div className="flex-1 w-full">
+                    <label className="block text-sm font-bold text-gray-700 mb-2">انتخاب خدمت</label>
+                    <select value={selectedServiceId === 'ALL' ? '' : selectedServiceId} onChange={handleServiceSelection} className="w-full px-4 h-12 border border-gray-200 rounded-xl outline-none font-bold text-sm bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:bg-white transition-colors cursor-pointer">
+                      <option value="" disabled>یک خدمت را انتخاب کنید...</option>
+                      {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                {overrideDateObj && selectedServiceId && selectedServiceId !== 'ALL' && (
+                  <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm animate-fade-in">
+                    <div className="flex justify-between items-center mb-6 border-b border-gray-100 pb-4">
+                      <h3 className="font-bold text-lg text-gray-800">ساعات فعال در این تاریخ</h3>
+                      <div className="flex gap-2">
+                        <select value={selectedGender} onChange={e => setSelectedGender(e.target.value)} disabled={!isSelectedServiceGendered} className="px-3 h-12 border border-gray-200 rounded-xl outline-none font-bold text-xs bg-gray-50 disabled:opacity-50 cursor-pointer">
+                          {!isSelectedServiceGendered ? <option value="all">عمومی</option> : <><option value="both">هر دو</option><option value="male">آقایان</option><option value="female">بانوان</option></>}
+                        </select>
+                        <TimeInput value={newOverrideTime} onChange={setNewOverrideTime} onEnter={addOverrideTime} />
+                        <button onClick={addOverrideTime} className="bg-blue-600 text-white px-6 rounded-xl font-bold hover:bg-blue-700 shadow-sm cursor-pointer">اضافه</button>
+                      </div>
+                    </div>
+                    
+                    <div className="flex flex-col gap-4 p-6 bg-gray-50 rounded-xl border border-gray-100 min-h-24">
+                      {renderOverrideScheduleBoxes()}
+                    </div>
+                    
+                    <div className="mt-6 flex justify-between items-center">
+                      <button onClick={() => setOverrideSlots([])} className="flex items-center gap-1.5 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl text-sm font-bold transition-colors cursor-pointer"><Trash2 className="w-4 h-4"/> پاک کردن همه (تعطیل موقت)</button>
+                      <button onClick={confirmSaveOverride} className="flex items-center gap-2 bg-green-600 hover:bg-green-700 text-white px-8 h-12 rounded-xl font-bold shadow-md cursor-pointer"><AlertCircle className="w-5 h-5"/> ثبت نهایی و اعمال تغییرات این روز</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Overrides History / List Section */}
+                <div className="mt-12 pt-8 border-t border-gray-200">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2"><History className="w-6 h-6 text-blue-600" /> مدیریت استثنائات اختصاصی تقویم</h3>
+                    <div className="flex bg-gray-100 p-1 rounded-xl">
+                      <button onClick={() => setOverrideListMode('future')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${overrideListMode === 'future' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>لیست پیش‌رو</button>
+                      <button onClick={() => setOverrideListMode('history')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-all cursor-pointer ${overrideListMode === 'history' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>تاریخچه گذشته</button>
+                    </div>
+                  </div>
+                  
+                  {filteredOverrideList.length === 0 ? (
+                     <div className="text-center py-10 bg-white rounded-2xl border border-gray-100 border-dashed">
+                       <p className="text-gray-500 font-bold">هیچ تغییر اختصاصی در این بازه ثبت نشده است.</p>
+                     </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                      {filteredOverrideList.map((item, idx) => (
+                        <div key={idx} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 flex flex-col">
+                          <div className="flex justify-between items-center border-b border-gray-100 pb-3 mb-3">
+                            <span className="font-bold text-gray-800">{formatToJalali(item.date)}</span>
+                            <span className="font-bold text-blue-600 text-sm truncate">{item.service_name}</span>
+                          </div>
+                          <div className="flex-1 flex items-center mb-4">
+                             {item.slots.length === 0 ? 
+                                <span className="bg-red-50 text-red-600 px-3 py-1.5 rounded-lg text-xs font-bold w-full text-center">کامل غیرفعال (تعطیل)</span> : 
+                                <span className="bg-blue-50 text-blue-600 px-3 py-1.5 rounded-lg text-xs font-bold w-full text-center">دارای {item.slots.length} زمان اختصاصی</span>
+                             }
+                          </div>
+                          <div className="flex gap-2">
+                             <button onClick={() => loadOverrideToEditor(item)} className="flex-1 bg-gray-50 hover:bg-gray-100 text-gray-700 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer">ویرایش</button>
+                             <button onClick={() => resetOverride(item.date, item.service_id)} className="flex items-center justify-center bg-red-50 hover:bg-red-100 text-red-600 py-2 px-3 rounded-xl transition-colors cursor-pointer" title="پاک کردن و بازگشت به پیش‌فرض"><Trash2 className="w-4 h-4"/></button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {confirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="bg-white w-full max-w-md rounded-3xl shadow-2xl overflow-hidden border border-gray-100">
+            <div className="p-8">
+              <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6 ${confirmModal.type === 'danger' ? 'bg-red-50' : confirmModal.type === 'success' ? 'bg-green-50' : 'bg-amber-50'}`}>
+                {confirmModal.type === 'success' ? <CheckCircle className="w-10 h-10 text-green-500" /> : <AlertCircle className={`w-10 h-10 ${confirmModal.type === 'danger' ? 'text-red-500' : 'text-amber-500'}`} />}
+              </div>
+              <h3 className="text-2xl font-bold text-center text-gray-800 mb-4">{confirmModal.title}</h3>
+              <p className="text-center text-gray-600 mb-8 leading-relaxed font-medium">{confirmModal.message}</p>
+              <div className="flex gap-4">
+                {confirmModal.showCancel && <button onClick={() => setConfirmModal(null)} className="flex-1 py-3.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition-colors cursor-pointer">انصراف</button>}
+                <button onClick={confirmModal.onConfirm} className={`flex-1 py-3.5 text-white rounded-xl font-bold transition-colors shadow-lg cursor-pointer ${confirmModal.type === 'danger' ? 'bg-red-500 hover:bg-red-600 shadow-red-200' : confirmModal.type === 'success' ? 'bg-green-500 hover:bg-green-600 shadow-green-200' : 'bg-amber-500 hover:bg-amber-600 shadow-amber-200'}`}>تایید</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
