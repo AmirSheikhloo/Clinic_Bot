@@ -539,9 +539,9 @@ export default function SettingsPage() {
                 <label className="block text-xs font-bold text-gray-500 mb-1">نام خدمت</label>
                 <input type="text" value={newServiceName} onChange={e => setNewServiceName(e.target.value)} placeholder="مثال: فصد..." className="w-full px-4 h-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white shadow-sm" required />
               </div>
-              <div className="w-full md:w-48">
+              <div className="w-full md:w-49">
                 <label className="block text-xs font-bold text-gray-500 mb-1">هزینه (تومان)</label>
-                <input type="text" value={newServicePrice} onChange={handlePriceChange} placeholder="برای رایگان بودن، 0 وارد کنید" className="w-full px-4 h-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white font-mono font-bold text-right placeholder:text-xs placeholder-gray-400 shadow-sm" dir="rtl" />
+                <input type="text" value={newServicePrice} onChange={handlePriceChange} placeholder="برای رایگان 0 وارد کنید" className="w-full px-4 h-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white font-mono font-bold text-right placeholder:text-xs placeholder-gray-400 shadow-sm" dir="rtl" />
               </div>
               <div className="w-full md:w-48">
                 <label className="block text-xs font-bold text-gray-500 mb-1">نوع خدمت</label>

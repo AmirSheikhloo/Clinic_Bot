@@ -124,8 +124,8 @@ export default function PatientsPage() {
   if (loading) return <div className="flex h-screen items-center justify-center"><div className="text-xl font-bold text-blue-600">در حال بارگذاری لیست بیماران...</div></div>;
 
   return (
-    <div className="min-h-screen px-8 w-full relative bg-gray-50">
-      <header className="pt-12 pb-8 flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-2 border-b-transparent">
+    <div className="min-h-screen px-8 pt-12 pb-8 w-full relative bg-gray-50">
+      <header className="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-8 border-b-transparent">
         <h1 className="text-3xl font-bold text-gray-800 leading-none">لیست بیماران</h1>
         <div className="flex flex-col sm:flex-row gap-3 w-full md:w-auto items-center">
           <div className="relative w-full sm:w-80 h-11">
@@ -141,7 +141,15 @@ export default function PatientsPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-right">
             <thead className="bg-gray-50 border-b border-gray-100">
-              <tr><th className="p-4 text-gray-600 font-bold text-sm">ردیف</th><th className="p-4 text-gray-600 font-bold text-sm">نام و نام خانوادگی</th><th className="p-4 text-gray-600 font-bold text-sm">کد ملی</th><th className="p-4 text-gray-600 font-bold text-sm">شماره تماس</th><th className="p-4 text-gray-600 font-bold text-sm">جنسیت</th><th className="p-4 text-gray-600 font-bold text-sm">منبع ثبت‌نام</th><th className="p-4 text-gray-600 font-bold text-sm text-center">عملیات</th></tr>
+              <tr>
+                <th className="p-4 text-gray-600 font-bold text-sm">ردیف</th>
+                <th className="p-4 text-gray-600 font-bold text-sm">نام و نام خانوادگی</th>
+                <th className="p-4 text-gray-600 font-bold text-sm">کد ملی</th>
+                <th className="p-4 text-gray-600 font-bold text-sm">شماره تماس</th>
+                <th className="p-4 text-gray-600 font-bold text-sm">جنسیت</th>
+                <th className="p-4 text-gray-600 font-bold text-sm text-center">منبع ثبت‌نام</th>
+                <th className="p-4 text-gray-600 font-bold text-sm text-center">عملیات</th>
+              </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {currentRows.map((patient, index) => (
@@ -151,10 +159,16 @@ export default function PatientsPage() {
                   <td className="p-4 text-gray-600 font-mono text-sm">{patient.national_id || "ثبت نشده"}</td>
                   <td className="p-4 text-gray-600 font-mono text-sm" dir="ltr">{patient.phone_number}</td>
                   <td className="p-4 text-gray-600 text-sm font-medium">{genderMap[patient.gender] || "ثبت نشده"}</td>
-                  <td className="p-4 text-sm font-medium"><span className={patient.user_id ? "text-blue-600 bg-blue-50 px-3 py-1.5 rounded-lg font-bold" : "text-gray-600 bg-gray-50 px-3 py-1.5 rounded-lg font-bold"}>{patient.user_id ? "ربات بله" : "پنل منشی"}</span></td>
-                  <td className="p-4 flex justify-center gap-3">
-                    <button onClick={() => openEditModal(patient)} className="flex items-center gap-1.5 px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 rounded-xl text-xs font-bold transition-colors cursor-pointer"><Edit className="w-4 h-4" /> ویرایش</button>
-                    <button onClick={() => setDeletePatientData({id: patient.id, name: `${patient.first_name} ${patient.last_name}`})} className="flex items-center gap-1.5 px-4 py-2 bg-red-50 text-red-600 hover:bg-red-100 rounded-xl text-xs font-bold transition-colors cursor-pointer"><Trash2 className="w-4 h-4" /> حذف</button>
+                  <td className="p-4 text-sm font-medium flex justify-center">
+                    <div className={`flex items-center justify-center w-24 px-2 py-1.5 rounded-lg font-bold shadow-sm ${patient.user_id ? "text-blue-600 bg-blue-50" : "text-gray-600 bg-gray-100"}`}>
+                        {patient.user_id ? "ربات بله" : "پنل منشی"}
+                    </div>
+                  </td>
+                  <td className="p-4">
+                    <div className="flex justify-center gap-2">
+                        <button onClick={() => openEditModal(patient)} className="flex items-center justify-center w-24 gap-1.5 bg-blue-50 text-blue-600 hover:bg-blue-100 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-sm"><Edit className="w-4 h-4" /> ویرایش</button>
+                        <button onClick={() => setDeletePatientData({id: patient.id, name: `${patient.first_name} ${patient.last_name}`})} className="flex items-center justify-center w-24 gap-1.5 bg-red-50 text-red-600 hover:bg-red-100 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer shadow-sm"><Trash2 className="w-4 h-4" /> حذف</button>
+                    </div>
                   </td>
                 </tr>
               ))}

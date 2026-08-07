@@ -12,7 +12,7 @@ from utils.helpers import to_date_label
 
 run_migrations()
 
-app = FastAPI(title="Clinic Dashboard API", version="3.8.0")
+app = FastAPI(title="Clinic Dashboard API", version="3.8.5")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -153,10 +153,12 @@ def update_status(appointment_id: int, payload: StatusUpdate, background_tasks: 
     return {"success": True, "message": "وضعیت با موفقیت تغییر کرد."}
 
 @app.get("/api/settings")
-def get_settings() -> dict: return {"clinic_name": repository.get_setting("clinic_name", ""), "clinic_phone": repository.get_setting("clinic_phone", ""), "clinic_address": repository.get_setting("clinic_address", ""), "working_hours_text": repository.get_setting("working_hours_text", "")}
+def get_settings() -> dict: return crud.get_general_settings()
 
 @app.post("/api/settings")
-def update_setting(payload: SettingUpdate) -> dict: repository.set_setting(payload.key, payload.value); return {"success": True}
+def update_setting(payload: SettingUpdate) -> dict: 
+    crud.save_general_setting(payload.key, payload.value)
+    return {"success": True}
 
 @app.get("/api/settings/schedule")
 def get_schedule() -> dict: return crud.get_schedule_config()

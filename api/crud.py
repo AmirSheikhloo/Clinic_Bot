@@ -10,6 +10,8 @@ DB_PATH = os.path.join(BASE_DIR, "data", "clinic_database.db")
 def _apply_patches():
     with sqlite3.connect(DB_PATH) as conn:
         cursor = conn.cursor()
+        try: cursor.execute("CREATE TABLE IF NOT EXISTS settings (key VARCHAR PRIMARY KEY, value TEXT, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
+        except sqlite3.OperationalError: pass
         try: cursor.execute("ALTER TABLE appointments ADD COLUMN source VARCHAR(50) DEFAULT 'bot'")
         except sqlite3.OperationalError: pass
         try: cursor.execute("ALTER TABLE patients ADD COLUMN is_active INTEGER DEFAULT 1")
@@ -37,6 +39,22 @@ _apply_patches()
 def get_dict_cursor(conn):
     conn.row_factory = sqlite3.Row
     return conn.cursor()
+
+def get_general_settings() -> Dict[str, str]:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT key, value FROM settings WHERE key IN ('clinic_name', 'clinic_phone', 'clinic_address', 'working_hours_text')")
+        rows = cursor.fetchall()
+        result = {"clinic_name": "", "clinic_phone": "", "clinic_address": "", "working_hours_text": ""}
+        for r in rows:
+            if r[1]: result[r[0]] = str(r[1])
+        return result
+
+def save_general_setting(key: str, value: str):
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = excluded.value", (key, value))
+        conn.commit()
 
 def get_schedule_config() -> Dict[str, Any]:
     with sqlite3.connect(DB_PATH) as conn:
