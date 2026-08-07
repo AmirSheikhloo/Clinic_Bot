@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { Save, Plus, X, Store, Stethoscope, Clock, Trash2, CalendarDays, AlertCircle, Edit, CheckCircle, Search, ChevronRight, ChevronLeft, History } from "lucide-react";
+import { Save, Plus, X, Store, Stethoscope, Clock, Trash2, CalendarDays, AlertCircle, Edit, CheckCircle, Search, ChevronRight, ChevronLeft, History, GripVertical, RotateCcw } from "lucide-react";
 import DatePicker, { DateObject } from "react-multi-date-picker";
 import persian from "react-date-object/calendars/persian";
 import persian_fa from "react-date-object/locales/persian_fa";
@@ -11,7 +11,7 @@ import gregorian_en from "react-date-object/locales/gregorian_en";
 const custom_fa = { ...persian_fa, digits: ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"] };
 const weekDaysMap = [ { id: 5, label: "شنبه" }, { id: 6, label: "یک‌شنبه" }, { id: 0, label: "دوشنبه" }, { id: 1, label: "سه‌شنبه" }, { id: 2, label: "چهارشنبه" }, { id: 3, label: "پنج‌شنبه" }, { id: 4, label: "جمعه" } ];
 
-interface Service { id: number; name: string; is_active: number; price: number; has_gender: number; }
+interface Service { id: number; name: string; is_active: number; price: number; has_gender: number; order_index: number; }
 interface ScheduleConfig { working_days: number[]; booking_days_ahead: number; default_times: Record<string, Record<string, string[]>>; weekly_times: Record<string, Record<string, Record<string, string[]>>>; }
 interface ConfirmModalState { isOpen: boolean; title: string; message: string; type: 'danger' | 'warning' | 'success'; onConfirm: () => void; showCancel?: boolean; }
 interface OverriddenDate { date: string; service_id: number; service_name: string; has_gender: number; slots: { time: string, gender: string }[]; }
@@ -29,6 +29,44 @@ const getPageNumbers = (current: number, total: number) => {
   if (current <= 4) return [1, 2, 3, 4, 5, "...", total];
   if (current >= total - 3) return [1, "...", total - 4, total - 3, total - 2, total - 1, total];
   return [1, "...", current - 1, current, current + 1, "...", total];
+};
+
+const CustomSelect = ({ value, options, onChange, placeholder = "انتخاب کنید...", disabled = false, grid = false }: { value: string, options: {value: string, label: string}[], onChange: (val: string) => void, placeholder?: string, disabled?: boolean, grid?: boolean }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setIsOpen(false); };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const selectedOption = options.find(o => o.value === value);
+
+  return (
+    <div className="relative w-full" ref={ref}>
+      <div onClick={() => !disabled && setIsOpen(!isOpen)} 
+           className={`w-full px-4 h-12 border rounded-xl flex items-center justify-between shadow-sm transition-all ${disabled ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white border-gray-200 cursor-pointer hover:border-blue-400 focus:ring-2 focus:ring-blue-500'}`}>
+        <span className={`font-bold text-sm truncate ${selectedOption ? 'text-gray-700' : 'text-gray-400'}`}>
+          {selectedOption ? selectedOption.label : placeholder}
+        </span>
+        <ChevronLeft className={`w-5 h-5 text-gray-400 transition-transform ${isOpen ? '-rotate-90' : ''}`} />
+      </div>
+      {isOpen && !disabled && (
+        <div className="absolute z-50 mt-2 w-full min-w-max bg-white border border-gray-100 rounded-xl shadow-xl overflow-hidden p-2 right-0 origin-top animate-fade-in">
+          <div className={`max-h-64 overflow-y-auto ${grid && options.length > 5 ? 'grid grid-cols-1 sm:grid-cols-2 gap-1' : 'flex flex-col gap-1'}`}>
+            {options.map((opt) => (
+              <div key={opt.value} onClick={() => { onChange(opt.value); setIsOpen(false); }}
+                   className={`px-3 py-2.5 rounded-lg font-bold text-sm cursor-pointer transition-colors flex items-center gap-2 ${value === opt.value ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-700'}`}>
+                {value === opt.value ? <CheckCircle className="w-4 h-4 text-blue-600 shrink-0"/> : <div className="w-4 h-4 shrink-0"/>}
+                <span className="truncate">{opt.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
 
 const TimeInput = ({ value, onChange, onEnter }: { value: string, onChange: (val: string) => void, onEnter: () => void }) => {
@@ -97,6 +135,7 @@ export default function SettingsPage() {
 
   const [loading, setLoading] = useState(true);
   const [confirmModal, setConfirmModal] = useState<ConfirmModalState | null>(null);
+  const [draggedServiceIndex, setDraggedServiceIndex] = useState<number | null>(null);
 
   const fetchOverrideList = useCallback(async () => {
     try {
@@ -150,7 +189,8 @@ export default function SettingsPage() {
 
   const handleSettingChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => { setSettings({ ...settings, [e.target.name]: e.target.value }); };
   const handlePhoneChange = (index: number, val: string) => { const newP = [...phones]; newP[index] = val.replace(/\D/g, ''); setPhones(newP); };
-  const addPhone = () => setPhones([...phones, ""]);
+  
+  const addPhone = () => { if (phones.length < 5) setPhones([...phones, ""]); };
   const removePhone = (index: number) => { const newP = phones.filter((_, i) => i !== index); setPhones(newP.length ? newP : [""]); };
   const handleSaveGeneral = async () => {
     setConfirmModal({ isOpen: true, title: "لطفاً صبر کنید...", type: 'warning', message: "در حال ذخیره اطلاعات...", showCancel: false, onConfirm: () => {} });
@@ -197,9 +237,34 @@ export default function SettingsPage() {
     } catch { setConfirmModal({ isOpen: true, title: "خطا", type: 'danger', message: "خطا در ارتباط با سرور.", showCancel: false, onConfirm: () => setConfirmModal(null) }); }
   };
 
+  const handleDragStart = (index: number) => { setDraggedServiceIndex(index); };
+  const handleDragOver = (e: React.DragEvent, index: number) => {
+    e.preventDefault();
+    if (draggedServiceIndex === null || draggedServiceIndex === index) return;
+    const items = [...services];
+    const draggedItem = items[draggedServiceIndex];
+    items.splice(draggedServiceIndex, 1);
+    items.splice(index, 0, draggedItem);
+    setDraggedServiceIndex(index);
+    setServices(items);
+  };
+  const handleDrop = async () => {
+    setDraggedServiceIndex(null);
+    const ordered_ids = services.map(s => s.id);
+    try { await fetch("http://127.0.0.1:8000/api/services/reorder", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ordered_ids }) }); } catch {}
+  };
+
   const toggleWorkingDay = (dayId: number) => { const isWorking = scheduleConfig.working_days.includes(dayId); setScheduleConfig({ ...scheduleConfig, working_days: isWorking ? scheduleConfig.working_days.filter(d => d !== dayId) : [...scheduleConfig.working_days, dayId] }); };
-  const handleDaysAheadChange = (val: string) => { let num = parseInt(val.replace(/\D/g, ''), 10); if (isNaN(num)) num = 1; if (num > 31) num = 31; setScheduleConfig({...scheduleConfig, booking_days_ahead: num}); };
+  const handleDaysAheadChange = (val: string) => { let num = parseInt(val.replace(/\D/g, ''), 10); if (isNaN(num)) num = 1; if (num > 60) num = 60; setScheduleConfig({...scheduleConfig, booking_days_ahead: num}); };
   const toggleBulkItem = (val: string) => { if (bulkSelected.includes(val)) setBulkSelected(bulkSelected.filter(v => v !== val)); else setBulkSelected([...bulkSelected, val]); };
+
+  const handleServiceSelection = (val: string) => {
+    setSelectedServiceId(val);
+    if (val !== 'ALL') {
+      const serviceObj = services.find(s => s.id.toString() === val);
+      setSelectedGender(serviceObj?.has_gender === 1 ? "both" : "all");
+    }
+  };
 
   const addDefaultTime = () => {
     if (!selectedServiceId || newDefaultTime.includes("_")) return;
@@ -362,16 +427,25 @@ export default function SettingsPage() {
     });
   };
 
-  const handleServiceSelection = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const val = e.target.value;
-    setSelectedServiceId(val);
-    if (val !== 'ALL') {
-      const serviceObj = services.find(s => s.id.toString() === val);
-      setSelectedGender(serviceObj?.has_gender === 1 ? "both" : "all");
-    }
-  };
-
   const isSelectedServiceGendered = services.find(s => s.id.toString() === selectedServiceId)?.has_gender === 1;
+
+  const servicesOptions = [
+    { value: "ALL", label: "همه خدمات (عملیات دسته‌جمعی)" },
+    ...services.map(s => ({ value: s.id.toString(), label: s.name }))
+  ];
+
+  const genderOptions = !isSelectedServiceGendered ? 
+    [{ value: "all", label: "عمومی (بدون تفکیک)" }] :
+    [
+      { value: "both", label: "هر دو (آقا و خانم)" },
+      { value: "male", label: "آقایان" },
+      { value: "female", label: "بانوان" }
+    ];
+
+  const targetDayOptions = [
+    { value: "all", label: "همه روزهای کاری (پیش‌فرض)" },
+    ...weekDaysMap.map(d => ({ value: d.id.toString(), label: `فقط ${d.label}‌ها (اختصاصی)` }))
+  ];
 
   const renderDefaultScheduleBoxes = () => {
     if (!selectedServiceId || selectedServiceId === 'ALL') {
@@ -400,7 +474,7 @@ export default function SettingsPage() {
       const genderLabel = g === "male" ? "مخصوص آقایان" : g === "female" ? "مخصوص بانوان" : "عمومی";
       return (
         <div key={g} className="flex flex-col sm:flex-row sm:items-center gap-4 p-5 bg-white rounded-xl border border-gray-200 shadow-sm">
-          <span className="font-bold text-sm text-gray-500 w-32 shrink-0">{genderLabel}</span>
+          <span className="font-bold text-sm text-gray-500 w-32 shrink-0">{genderLabel}:</span>
           <div className="flex flex-wrap gap-4 flex-1">
             {[...times].sort().map(t => (
               <div key={t} className="relative inline-flex items-center justify-center px-4 py-2.5 bg-slate-50 text-slate-800 rounded-xl font-mono text-lg font-bold border border-slate-200 shadow-sm group">
@@ -437,7 +511,7 @@ export default function SettingsPage() {
       const genderLabel = g === "male" ? "مخصوص آقایان" : g === "female" ? "مخصوص بانوان" : "عمومی";
       return (
         <div key={g} className="flex flex-col sm:flex-row sm:items-center gap-4 p-4 bg-white rounded-xl border border-gray-200 shadow-sm w-full">
-          <span className="font-bold text-sm text-gray-500 w-32 shrink-0">{genderLabel}</span>
+          <span className="font-bold text-sm text-gray-500 w-32 shrink-0">{genderLabel}:</span>
           <div className="flex flex-wrap gap-4 flex-1">
             {[...times].sort((a,b)=>a.time.localeCompare(b.time)).map((slot, idx) => (
               <div key={idx} className="relative inline-flex flex-col items-center justify-center p-3 bg-white rounded-xl border border-gray-200 shadow-sm group">
@@ -493,7 +567,7 @@ export default function SettingsPage() {
   if (loading) return <div className="flex h-screen items-center justify-center"><div className="text-xl font-bold text-blue-600">بارگذاری تنظیمات...</div></div>;
 
   return (
-    <div className="min-h-screen px-8 pt-12 pb-8 w-full relative bg-transparent">
+    <div className="min-h-screen px-8 pt-12 pb-32 w-full relative bg-transparent">
       <header className="flex items-center justify-between mb-8 border-b-transparent">
         <h1 className="text-3xl font-bold text-gray-800 leading-none">تنظیمات سیستم</h1>
       </header>
@@ -508,26 +582,59 @@ export default function SettingsPage() {
         
         {activeTab === 'general' && (
           <div className="space-y-8 animate-fade-in max-w-3xl">
-            <div><label className="block text-sm font-bold text-gray-700 mb-2">نام درمانگاه</label><input type="text" name="clinic_name" value={settings.clinic_name} onChange={handleSettingChange} className="w-full px-4 h-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none shadow-sm" /></div>
-            
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">شماره‌های تماس (نمایش در ربات)</label>
-              <div className="space-y-3">
-                {phones.map((phone, index) => (
-                  <div key={index} className="flex gap-3">
-                    <input type="text" value={phone} onChange={e => handlePhoneChange(index, e.target.value)} className="flex-1 px-4 h-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none font-mono tracking-widest text-left shadow-sm" dir="ltr" placeholder="021..." />
-                    <button onClick={() => removePhone(index)} className="w-12 h-12 shrink-0 flex items-center justify-center bg-red-50 text-red-500 rounded-xl hover:bg-red-100 transition-colors cursor-pointer"><Trash2 className="w-5 h-5"/></button>
-                  </div>
-                ))}
-                <div className="flex gap-3 mt-3">
-                  <div className="flex-1"></div>
-                  <button onClick={addPhone} className="w-12 h-12 shrink-0 flex items-center justify-center bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors cursor-pointer"><Plus className="w-5 h-5"/></button>
+              <label className="block text-sm font-bold text-gray-700 mb-2">نام درمانگاه:</label>
+              <div className="flex items-center w-full border border-gray-200 rounded-xl focus-within:ring-2 focus-within:ring-blue-500 bg-white shadow-sm transition-all overflow-hidden h-12">
+                <input type="text" name="clinic_name" value={settings.clinic_name} onChange={handleSettingChange} maxLength={50} className="flex-1 px-4 h-full outline-none bg-transparent" />
+                <div className="h-full bg-gray-50 border-r border-gray-100 px-3 flex items-center justify-center">
+                   <span className="text-xs font-bold text-gray-400 font-mono" dir="ltr">{settings.clinic_name.length}/50</span>
                 </div>
               </div>
             </div>
+            
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">شماره‌های تماس (نمایش در ربات - حداکثر ۵ عدد):</label>
+              <div className="space-y-3">
+                {phones.map((phone, index) => (
+                  <div key={index} className="flex gap-3">
+                    <div className="flex-1 flex items-center border border-gray-200 rounded-xl focus-within:ring-2 focus-within:ring-blue-500 bg-white shadow-sm transition-all overflow-hidden h-12" dir="ltr">
+                      <input type="text" value={phone} onChange={e => handlePhoneChange(index, e.target.value)} maxLength={11} className="flex-1 px-4 h-full outline-none font-mono tracking-widest text-left bg-transparent placeholder:text-gray-300" placeholder="0912..." />
+                      <div className="h-full bg-gray-50 border-l border-gray-100 px-3 flex items-center justify-center">
+                         <span className="text-xs font-bold text-gray-400 font-mono" dir="ltr">{phone.length}/11</span>
+                      </div>
+                    </div>
+                    <button onClick={() => removePhone(index)} className="w-12 h-12 shrink-0 flex items-center justify-center bg-red-50 text-red-500 rounded-xl hover:bg-red-100 transition-colors cursor-pointer"><Trash2 className="w-5 h-5"/></button>
+                  </div>
+                ))}
+                {phones.length < 5 && (
+                  <div className="flex gap-3 mt-3">
+                    <div className="flex-1"></div>
+                    <button onClick={addPhone} className="w-12 h-12 shrink-0 flex items-center justify-center bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-colors cursor-pointer"><Plus className="w-5 h-5"/></button>
+                  </div>
+                )}
+              </div>
+            </div>
 
-            <div><label className="block text-sm font-bold text-gray-700 mb-2">توضیحات زمان کاری (نمایش متنی)</label><input type="text" name="working_hours_text" value={settings.working_hours_text} onChange={handleSettingChange} placeholder="مثال: همه‌روزه به جز جمعه‌ها" className="w-full px-4 h-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none shadow-sm" /></div>
-            <div><label className="block text-sm font-bold text-gray-700 mb-2">آدرس دقیق درمانگاه</label><textarea name="clinic_address" value={settings.clinic_address} onChange={handleSettingChange} rows={3} className="w-full px-4 py-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none resize-none shadow-sm" /></div>
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">توضیحات زمان کاری:</label>
+              <div className="flex flex-col w-full border border-gray-200 rounded-xl focus-within:ring-2 focus-within:ring-blue-500 bg-white shadow-sm overflow-hidden transition-all">
+                <textarea name="working_hours_text" value={settings.working_hours_text} onChange={handleSettingChange} maxLength={100} rows={2} placeholder="مثال: همه‌روزه به جز جمعه‌ها" className="w-full px-4 py-3 outline-none resize-none bg-transparent" />
+                <div className="bg-gray-50 border-t border-gray-100 px-4 py-1.5 flex justify-end items-center">
+                   <span className="text-xs font-bold text-gray-400 font-mono" dir="ltr">{settings.working_hours_text.length}/100</span>
+                </div>
+              </div>
+            </div>
+            
+            <div>
+              <label className="block text-sm font-bold text-gray-700 mb-2">آدرس دقیق درمانگاه:</label>
+              <div className="flex flex-col w-full border border-gray-200 rounded-xl focus-within:ring-2 focus-within:ring-blue-500 bg-white shadow-sm overflow-hidden transition-all">
+                <textarea name="clinic_address" value={settings.clinic_address} onChange={handleSettingChange} rows={3} maxLength={250} className="w-full px-4 py-3 outline-none resize-none bg-transparent" />
+                <div className="bg-gray-50 border-t border-gray-100 px-4 py-1.5 flex justify-end items-center">
+                   <span className="text-xs font-bold text-gray-400 font-mono" dir="ltr">{settings.clinic_address.length}/250</span>
+                </div>
+              </div>
+            </div>
+            
             <div className="pt-4 border-t border-gray-100"><button onClick={handleSaveGeneral} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 h-12 rounded-xl font-bold shadow-sm cursor-pointer"><Save className="w-5 h-5" /> ذخیره اطلاعات</button></div>
           </div>
         )}
@@ -536,15 +643,15 @@ export default function SettingsPage() {
           <div className="animate-fade-in w-full">
             <form onSubmit={handleSaveService} className="flex flex-col md:flex-row gap-4 mb-8 p-6 bg-gray-50 rounded-2xl border border-gray-100 shadow-sm items-end">
               <div className="flex-1 w-full">
-                <label className="block text-xs font-bold text-gray-500 mb-1">نام خدمت</label>
-                <input type="text" value={newServiceName} onChange={e => setNewServiceName(e.target.value)} placeholder="مثال: فصد..." className="w-full px-4 h-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white shadow-sm" required />
-              </div>
-              <div className="w-full md:w-49">
-                <label className="block text-xs font-bold text-gray-500 mb-1">هزینه (تومان)</label>
-                <input type="text" value={newServicePrice} onChange={handlePriceChange} placeholder="برای رایگان 0 وارد کنید" className="w-full px-4 h-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white font-mono font-bold text-right placeholder:text-xs placeholder-gray-400 shadow-sm" dir="rtl" />
+                <label className="block text-xs font-bold text-gray-500 mb-1">نام خدمت:</label>
+                <input type="text" value={newServiceName} onChange={e => setNewServiceName(e.target.value)} maxLength={50} placeholder="مثال: فصد..." className="w-full px-4 h-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white shadow-sm" required />
               </div>
               <div className="w-full md:w-48">
-                <label className="block text-xs font-bold text-gray-500 mb-1">نوع خدمت</label>
+                <label className="block text-xs font-bold text-gray-500 mb-1">هزینه (تومان):</label>
+                <input type="text" value={newServicePrice} onChange={handlePriceChange} placeholder="رایگان = 0" className="w-full px-4 h-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none bg-white font-mono font-bold text-right placeholder:text-sm placeholder-gray-400 shadow-sm" dir="rtl" />
+              </div>
+              <div className="w-full md:w-48">
+                <label className="block text-xs font-bold text-gray-500 mb-1">نوع خدمت:</label>
                 <select value={newServiceGender} onChange={e => setNewServiceGender(parseInt(e.target.value))} className="w-full px-4 h-12 border border-gray-200 rounded-xl outline-none bg-white cursor-pointer font-bold text-sm shadow-sm">
                   <option value={0}>عمومی</option>
                   <option value={1}>تفکیک جنسیت دارد</option>
@@ -558,14 +665,23 @@ export default function SettingsPage() {
             
             <div className="space-y-3">
               <h3 className="font-bold text-gray-800 mb-4 flex items-center gap-2"><Stethoscope className="w-5 h-5 text-blue-600" /> مدیریت خدمات سیستم</h3>
+              <p className="text-xs font-bold text-gray-500 mb-4 bg-blue-50 p-3 rounded-lg border border-blue-100 flex items-center gap-2"><AlertCircle className="w-4 h-4 text-blue-600"/> با کشیدن و رها کردن آیکون ☰ می‌توانید ترتیب نمایش خدمات در ربات بله را تغییر دهید.</p>
               <div className="overflow-x-auto rounded-xl border border-gray-100">
                 <table className="w-full text-right">
                   <thead className="bg-gray-50 border-b border-gray-100">
-                    <tr><th className="p-4 font-bold text-gray-600 text-sm">نام خدمت</th><th className="p-4 font-bold text-gray-600 text-sm text-center">هزینه (تومان)</th><th className="p-4 font-bold text-gray-600 text-sm text-center">تفکیک جنسیتی</th><th className="p-4 font-bold text-gray-600 text-sm text-center">وضعیت در ربات</th><th className="p-4 font-bold text-gray-600 text-sm text-center">عملیات</th></tr>
+                    <tr><th className="p-4 w-12"></th><th className="p-4 font-bold text-gray-600 text-sm">نام خدمت</th><th className="p-4 font-bold text-gray-600 text-sm text-center">هزینه (تومان)</th><th className="p-4 font-bold text-gray-600 text-sm text-center">تفکیک جنسیتی</th><th className="p-4 font-bold text-gray-600 text-sm text-center">وضعیت در ربات</th><th className="p-4 font-bold text-gray-600 text-sm text-center">عملیات</th></tr>
                   </thead>
                   <tbody className="divide-y divide-gray-100">
-                    {services.map(s => (
-                      <tr key={s.id} className="hover:bg-gray-50 transition-colors">
+                    {services.map((s, index) => (
+                      <tr 
+                        key={s.id} 
+                        draggable 
+                        onDragStart={() => handleDragStart(index)}
+                        onDragOver={(e) => handleDragOver(e, index)}
+                        onDragEnd={handleDrop}
+                        className={`transition-colors ${draggedServiceIndex === index ? 'bg-blue-50 opacity-50' : 'hover:bg-gray-50 bg-white'}`}
+                      >
+                        <td className="p-4 cursor-grab active:cursor-grabbing text-gray-400 hover:text-blue-600 transition-colors" title="بکشید و رها کنید"><GripVertical className="w-5 h-5"/></td>
                         <td className={`p-4 font-bold ${s.is_active === 1 ? 'text-gray-800' : 'text-gray-400'}`}>{s.name}</td>
                         <td className="p-4 text-center">
                           {s.price > 0 ? <span className="font-mono text-gray-700 font-bold">{s.price.toLocaleString('en-US')}</span> : <span className="bg-emerald-50 text-emerald-600 px-3 py-1 rounded font-bold text-xs">رایگان</span>}
@@ -587,7 +703,7 @@ export default function SettingsPage() {
         )}
 
         {activeTab === 'schedule' && (
-          <div className="animate-fade-in w-full">
+          <div className="animate-fade-in w-full pb-20">
             <div className="flex gap-2 mb-6 border-b border-gray-100 pb-4">
               <button onClick={() => setScheduleSubTab('defaults')} className={`px-4 py-2 font-bold rounded-xl text-sm transition-all cursor-pointer ${scheduleSubTab === 'defaults' ? 'bg-blue-100 text-blue-700' : 'bg-transparent text-gray-500 hover:bg-gray-50'}`}>تنظیمات پایه و پیش‌فرض</button>
               <button onClick={() => setScheduleSubTab('overrides')} className={`px-4 py-2 font-bold rounded-xl text-sm transition-all cursor-pointer ${scheduleSubTab === 'overrides' ? 'bg-amber-100 text-amber-700' : 'bg-transparent text-gray-500 hover:bg-gray-50'}`}>تغییرات برای یک روز خاص</button>
@@ -596,7 +712,7 @@ export default function SettingsPage() {
             {scheduleSubTab === 'defaults' && (
               <div className="space-y-10 max-w-4xl">
                 <div>
-                  <label className="block text-sm font-bold text-gray-800 mb-3">روزهای کاری مطب (فعال در ربات)</label>
+                  <label className="block text-sm font-bold text-gray-800 mb-3">روزهای کاری مطب (فعال در ربات):</label>
                   <div className="flex flex-wrap gap-3">
                     {weekDaysMap.map(day => {
                       const isActive = scheduleConfig.working_days.includes(day.id);
@@ -610,11 +726,11 @@ export default function SettingsPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-bold text-gray-800 mb-3">بازه باز شدن نوبت‌ها در ربات</label>
+                  <label className="block text-sm font-bold text-gray-800 mb-3">افق دید روزهای تقویم:</label>
                   <div className="flex items-center gap-3 bg-gray-50 p-4 rounded-2xl border border-gray-100 w-max">
-                    <span className="text-gray-600 font-bold text-sm">کاربران می‌توانند تا</span>
-                    <input type="number" value={scheduleConfig.booking_days_ahead.toString()} onChange={e => handleDaysAheadChange(e.target.value)} className="w-20 px-3 h-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-center font-bold text-xl bg-white shadow-sm" min="1" max="31" />
-                    <span className="text-gray-600 font-bold text-sm">روز آینده را برای نوبت‌گیری مشاهده کنند.</span>
+                    <span className="text-gray-600 font-bold text-sm">بازه زمانی نمایش نوبت‌ها در ربات، برابر است با</span>
+                    <input type="number" value={scheduleConfig.booking_days_ahead.toString()} onChange={e => handleDaysAheadChange(e.target.value)} className="w-20 px-3 h-12 border border-gray-200 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none text-center font-bold text-xl bg-white shadow-sm" min="1" max="60" />
+                    <span className="text-gray-600 font-bold text-sm">روزِ کاریِ آینده.</span>
                   </div>
                 </div>
 
@@ -623,35 +739,26 @@ export default function SettingsPage() {
                   
                   <div className="mb-6 bg-blue-50 border border-blue-100 p-4 rounded-xl flex items-center gap-4">
                     <label className="text-sm font-bold text-blue-800 shrink-0">اعمال این تنظیمات روی:</label>
-                    <select value={targetDay} onChange={e => setTargetDay(e.target.value)} className="w-64 px-4 h-11 border border-blue-200 rounded-xl outline-none font-bold text-sm bg-white cursor-pointer shadow-sm text-blue-900">
-                      <option value="all">همه روزهای کاری (پیش‌فرض)</option>
-                      {weekDaysMap.map(d => <option key={d.id} value={d.id.toString()}>فقط {d.label}‌ها (اختصاصی)</option>)}
-                    </select>
+                    <div className="w-64">
+                       <CustomSelect value={targetDay} onChange={setTargetDay} options={targetDayOptions} />
+                    </div>
                   </div>
 
                   <div className="bg-gray-50 p-6 rounded-2xl border border-gray-200 shadow-sm space-y-6">
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                       <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-2">انتخاب خدمت</label>
-                        <select value={selectedServiceId} onChange={handleServiceSelection} className="w-full px-4 h-12 border border-gray-200 rounded-xl outline-none font-bold text-sm bg-white cursor-pointer shadow-sm">
-                          <option value="" disabled>انتخاب کنید...</option>
-                          <option value="ALL" className="font-black text-blue-700 bg-blue-50">همه خدمات (عملیات دسته‌جمعی)</option>
-                          <option disabled>──────────</option>
-                          {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                        </select>
+                        <label className="block text-xs font-bold text-gray-500 mb-2">انتخاب خدمت:</label>
+                        <CustomSelect value={selectedServiceId} onChange={handleServiceSelection} options={servicesOptions} grid={true} />
                       </div>
                       
                       {selectedServiceId !== 'ALL' ? (
                         <>
                           <div>
-                            <label className="block text-xs font-bold text-gray-500 mb-2">تفکیک جنسیت</label>
-                            <select value={selectedGender} onChange={e => setSelectedGender(e.target.value)} disabled={!isSelectedServiceGendered} className="w-full px-4 h-12 border border-gray-200 rounded-xl outline-none font-bold text-sm bg-white disabled:opacity-50 disabled:bg-gray-100 cursor-pointer shadow-sm">
-                              {!isSelectedServiceGendered ? <option value="all">عمومی (بدون تفکیک)</option> :
-                              <><option value="both">هر دو (آقا و خانم)</option><option value="male">آقایان</option><option value="female">بانوان</option></>}
-                            </select>
+                            <label className="block text-xs font-bold text-gray-500 mb-2">تفکیک جنسیت:</label>
+                            <CustomSelect value={selectedGender} onChange={setSelectedGender} options={genderOptions} disabled={!isSelectedServiceGendered} />
                           </div>
                           <div>
-                            <label className="block text-xs font-bold text-gray-500 mb-2">اضافه کردن ساعت</label>
+                            <label className="block text-xs font-bold text-gray-500 mb-2">اضافه کردن ساعت:</label>
                             <div className="flex gap-2">
                               <TimeInput value={newDefaultTime} onChange={setNewDefaultTime} onEnter={addDefaultTime} />
                               <button onClick={addDefaultTime} disabled={!selectedServiceId} className="flex-1 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 shadow-sm cursor-pointer">افزودن</button>
@@ -701,9 +808,12 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="pt-6 flex items-center justify-between border-t border-gray-100">
-                  <p className="text-xs text-gray-500 font-bold max-w-sm">⚠️ تغییرات این صفحه فقط زمانی ذخیره و روی ربات اعمال می‌شود که دکمه روبرو را کلیک کنید.</p>
-                  <button onClick={handleSaveScheduleConfig} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 h-12 rounded-xl font-bold shadow-md cursor-pointer"><Save className="w-5 h-5" /> ذخیره تقویم سیستم</button>
+                <div className="pt-6 flex items-center justify-between border-t border-gray-100 bg-white p-4 rounded-2xl shadow-sm border">
+                  <p className="text-xs text-gray-500 font-bold max-w-sm">⚠️ تغییرات این صفحه فقط زمانی روی ربات اعمال می‌شود که تقویم را ذخیره کنید.</p>
+                  <div className="flex gap-3">
+                    <button onClick={fetchData} className="flex items-center gap-2 bg-gray-100 hover:bg-gray-200 text-gray-700 px-6 h-12 rounded-xl font-bold shadow-sm cursor-pointer"><RotateCcw className="w-5 h-5"/> لغو تغییرات من</button>
+                    <button onClick={handleSaveScheduleConfig} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-8 h-12 rounded-xl font-bold shadow-md cursor-pointer"><Save className="w-5 h-5" /> ذخیره تقویم سیستم</button>
+                  </div>
                 </div>
               </div>
             )}
@@ -720,15 +830,12 @@ export default function SettingsPage() {
                 
                 <div className="bg-white border border-gray-200 rounded-2xl p-6 flex flex-col md:flex-row gap-6 items-end shadow-sm max-w-4xl">
                   <div className="flex-1 w-full relative">
-                    <label className="flex items-center gap-2 text-sm font-bold text-gray-700 mb-2"><CalendarDays className="w-4 h-4"/> انتخاب تاریخ مورد نظر</label>
+                    <label className="flex items-center gap-2 text-sm font-bold text-gray-700 mb-2"><CalendarDays className="w-4 h-4"/> انتخاب تاریخ مورد نظر:</label>
                     <DatePicker calendar={persian} locale={custom_fa} value={overrideDateObj} onChange={(dateObject: DateObject | null) => { if (dateObject) setOverrideDateObj(dateObject); }} containerClassName="w-full" inputClass="w-full px-4 h-12 border border-gray-200 rounded-xl outline-none font-bold text-center bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:bg-white transition-colors cursor-pointer" editable={false} />
                   </div>
                   <div className="flex-1 w-full">
-                    <label className="block text-sm font-bold text-gray-700 mb-2">انتخاب خدمت</label>
-                    <select value={selectedServiceId === 'ALL' ? '' : selectedServiceId} onChange={handleServiceSelection} className="w-full px-4 h-12 border border-gray-200 rounded-xl outline-none font-bold text-sm bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:bg-white transition-colors cursor-pointer">
-                      <option value="" disabled>یک خدمت را انتخاب کنید...</option>
-                      {services.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
+                    <label className="block text-sm font-bold text-gray-700 mb-2">انتخاب خدمت:</label>
+                    <CustomSelect value={selectedServiceId === 'ALL' ? '' : selectedServiceId} onChange={handleServiceSelection} options={servicesOptions.filter(o => o.value !== 'ALL')} grid={true} />
                   </div>
                 </div>
 
@@ -736,12 +843,12 @@ export default function SettingsPage() {
                   <div className="bg-white p-6 rounded-2xl border border-gray-200 shadow-sm animate-fade-in max-w-4xl">
                     <div className="flex justify-between items-center mb-6 border-b border-gray-100 pb-4">
                       <h3 className="font-bold text-lg text-gray-800">ساعات فعال در این تاریخ</h3>
-                      <div className="flex gap-2">
-                        <select value={selectedGender} onChange={e => setSelectedGender(e.target.value)} disabled={!isSelectedServiceGendered} className="px-3 h-12 border border-gray-200 rounded-xl outline-none font-bold text-xs bg-gray-50 disabled:opacity-50 cursor-pointer">
-                          {!isSelectedServiceGendered ? <option value="all">عمومی</option> : <><option value="both">هر دو</option><option value="male">آقایان</option><option value="female">بانوان</option></>}
-                        </select>
+                      <div className="flex gap-2 items-center">
+                        <div className="w-48">
+                           <CustomSelect value={selectedGender} onChange={setSelectedGender} disabled={!isSelectedServiceGendered} options={genderOptions} />
+                        </div>
                         <TimeInput value={newOverrideTime} onChange={setNewOverrideTime} onEnter={addOverrideTime} />
-                        <button onClick={addOverrideTime} className="bg-blue-600 text-white px-6 rounded-xl font-bold hover:bg-blue-700 shadow-sm cursor-pointer">اضافه</button>
+                        <button onClick={addOverrideTime} className="bg-blue-600 text-white px-6 h-12 rounded-xl font-bold hover:bg-blue-700 shadow-sm cursor-pointer">اضافه</button>
                       </div>
                     </div>
                     

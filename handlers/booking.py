@@ -1,19 +1,18 @@
 import asyncio
 from datetime import datetime, timedelta
-from bale import Message, CallbackQuery
+from bale import Message, CallbackQuery, InlineKeyboardMarkup, InlineKeyboardButton
 
 from database.repository import repository
-from services.schedule_service import schedule_service
+from api.crud import get_schedule_config
 from utils.helpers import to_persian_date, to_date_label, get_service_display_name, get_msg_id, activate_text_keyboard
 from utils.keyboards import (
-    booking_target_keyboard, booking_services_keyboard, booking_dates_keyboard, booking_times_keyboard,
-    booking_checkout_keyboard, booking_confirmation_keyboard, back_to_services_keyboard,
+    booking_target_keyboard, booking_checkout_keyboard, booking_confirmation_keyboard, back_to_services_keyboard,
     other_cancel_inline_keyboard, other_back_inline_keyboard, gender_keyboard, insurance_keyboard, main_keyboard,
     other_patient_confirm_keyboard, edit_other_cancel_inline_keyboard, edit_other_back_inline_keyboard
 )
 from utils.state_manager import state_manager
 from utils.validators import validate_full_name, validate_national_id, validate_phone_number, normalize_digits
-from handlers.patients import REGISTRATION_NATIONAL_ID, safe_delete_previous_inline, send_tracked_message
+from handlers.patients import REGISTRATION_NATIONAL_ID, send_tracked_message
 
 BOOKING_TARGET = "booking_target"
 BOOKING_SERVICE = "booking_service"
@@ -32,23 +31,74 @@ EDIT_OTHER_PHONE = "edit_other_phone"
 EDIT_OTHER_GENDER = "edit_other_gender"
 EDIT_OTHER_INSURANCE = "edit_other_insurance"
 
-SERVICE_DEFINITIONS = {
-    "ویزیت دکتر گرایلی": False,
-    "غمز و رگ گیری": False,
-    "طب سوزنی": False,
-    "فصد": False,
-    "اسکن کل بدن": False,
-    "سم زدایی": False,
-    "امبدینگ(لاغری)": False,
-    "بادکش": True,
-    "حجامت عام": True,
-    "زالودرمانی": True,
-}
-
 GENDER_MAP = {"آقا": "male", "خانم": "female"}
 INSURANCE_MAP = {"سلامت": "health", "تأمین اجتماعی": "social_security", "تامین اجتماعی": "social_security", "نیروهای مسلح": "armed_forces", "بدون بیمه": "none"}
 GENDER_DISPLAY = {"male": "آقا", "female": "خانم"}
 INSURANCE_DISPLAY = {"health": "سلامت", "social_security": "تأمین اجتماعی", "armed_forces": "نیروهای مسلح", "none": "بدون بیمه"}
+
+# --- Custom Keyboards designed specifically for beautiful flow ---
+def get_persian_weekday(date_str: str) -> str:
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+        weekdays = {
+            5: "شنبه",
+            6: "یک‌شنبه",
+            0: "دوشنبه",
+            1: "سه‌شنبه",
+            2: "چهارشنبه",
+            3: "پنج‌شنبه",
+            4: "جمعه"
+        }
+        return weekdays[dt.weekday()]
+    except Exception:
+        return ""
+
+def custom_booking_services_keyboard(services):
+    kb = InlineKeyboardMarkup()
+    row_idx = 1
+    for i, s in enumerate(services):
+        row_idx = (i // 2) + 1
+        kb.add(InlineKeyboardButton(text=s["name"], callback_data=f"booking_service:{s['id']}"), row_idx)
+    kb.add(InlineKeyboardButton(text="بازگشت", callback_data="booking_back:target"), row_idx + 1)
+    return kb
+
+def custom_booking_dates_keyboard(dates, availability):
+    kb = InlineKeyboardMarkup()
+    for i, d in enumerate(dates):
+        row_idx = i + 1  # قرار دادن دکمه‌های تاریخ به صورت تکی در هر ردیف
+        status = availability.get(d, "disabled")
+        weekday = get_persian_weekday(d)
+        p_date = to_persian_date(d)
+        
+        base_text = f"📅 {weekday} - {p_date}"
+        
+        if status == "available":
+            text = base_text
+            cb = f"booking_date:{d}"
+        elif status == "full":
+            text = f"{base_text} (تکمیل)"
+            cb = f"booking_date:full:{d}"
+        else:
+            text = f"{base_text} (غیرفعال)"
+            cb = f"booking_date:disabled:{d}"
+            
+        kb.add(InlineKeyboardButton(text=text, callback_data=cb), row_idx)
+        
+    kb.add(InlineKeyboardButton(text="بازگشت", callback_data="booking_back:services"), len(dates) + 1)
+    return kb
+
+def custom_booking_times_keyboard(times, appointment_date):
+    kb = InlineKeyboardMarkup()
+    row_idx = 1
+    for i, t in enumerate(times):
+        row_idx = (i // 2) + 1
+        is_full = int(t.get("booked_count", 0)) >= int(t.get("capacity", 1))
+        text = f"{t['start_time']} (تکمیل)" if is_full else t['start_time']
+        cb = f"booking_time:full:{appointment_date}:{t['start_time']}" if is_full else f"booking_time:{appointment_date}:{t['start_time']}"
+        kb.add(InlineKeyboardButton(text=text, callback_data=cb), row_idx)
+    kb.add(InlineKeyboardButton(text="بازگشت", callback_data="booking_back:dates"), row_idx + 1)
+    return kb
+# ------------------------------------------------------------------
 
 def get_selected_patient(user_id: int):
     user = repository.get_user_by_bale_id(user_id)
@@ -56,37 +106,35 @@ def get_selected_patient(user_id: int):
     patient = repository.get_patient_by_user_id(user["id"])
     return user, patient
 
-def get_service_record(service_id: int):
-    try: service_id = int(service_id)
-    except: return None
-    services = repository.get_services()
-    for service in services:
-        if int(service["id"]) == service_id: return service
-    return None
-
 def get_services_for_booking():
     services = repository.get_services()
-    wanted = set(SERVICE_DEFINITIONS.keys())
-    result = [s for s in services if s.get("name") in wanted]
-    order = {name: index for index, name in enumerate(SERVICE_DEFINITIONS.keys())}
-    result.sort(key=lambda item: order.get(item.get("name"), 999))
-    return result
+    return [s for s in services if s.get("is_active", 1) == 1]
 
-def service_requires_gender(service_name: str) -> bool:
-    return bool(SERVICE_DEFINITIONS.get(service_name, False))
+async def safe_delete_previous_inline(message, user_id: int):
+    last_id = state_manager.get_data(user_id, "last_prompt_id")
+    if last_id:
+        try:
+            bot = message.get_bot() if hasattr(message, "get_bot") else None
+            if bot:
+                await bot.edit_message(message.chat_id, last_id, text=state_manager.get_data(user_id, "last_prompt_text", " "), components=None)
+        except:
+            pass
+        state_manager.set_data(user_id, "last_prompt_id", None)
 
 async def send_callback_message(query: CallbackQuery, text: str, components=None, delete_message=True):
     if not query.message: return
     bot = query.message.get_bot()
     chat_id = query.message.chat_id
     if delete_message:
-        try: await query.message.delete()
-        except: pass
-    msg = await bot.send_message(chat_id, text, components=components)
-    msg_id = get_msg_id(msg)
-    if msg_id: 
-        state_manager.set_data(query.user.id, "last_prompt_id", msg_id)
-        state_manager.set_data(query.user.id, "last_prompt_text", text)
+        try: await query.message.edit(text, components=components)
+        except Exception:
+            try: await query.message.delete()
+            except: pass
+            msg = await bot.send_message(chat_id, text, components=components)
+            msg_id = get_msg_id(msg)
+            if msg_id: 
+                state_manager.set_data(query.user.id, "last_prompt_id", msg_id)
+                state_manager.set_data(query.user.id, "last_prompt_text", text)
 
 async def show_services(target, user_id: int):
     services = get_services_for_booking()
@@ -104,7 +152,7 @@ async def show_services(target, user_id: int):
     state_manager.set_data(user_id, "services", services)
 
     text = "🗓 دریافت نوبت\n\nلطفاً خدمت مورد نظر خود را انتخاب کنید:"
-    keyboard = booking_services_keyboard(services)
+    keyboard = custom_booking_services_keyboard(services)
 
     if isinstance(target, CallbackQuery): await send_callback_message(target, text, components=keyboard)
     else: await target.reply(text, components=keyboard)
@@ -154,7 +202,7 @@ async def handle_booking_start(message: Message):
         return
     state_manager.clear_state(user_id)
     state_manager.set_state(user_id, BOOKING_TARGET)
-    await message.reply("🗓 دریافت نوبت\n\nلطفاً مشخص کنید نوبت را برای چه کسی می‌خواهید:", components=booking_target_keyboard())
+    await send_tracked_message(message, user_id, "🗓 دریافت نوبت\n\nلطفاً مشخص کنید نوبت را برای چه کسی می‌خواهید:", components=booking_target_keyboard())
 
 async def handle_booking_start_callback(query: CallbackQuery):
     user_id = query.user.id
@@ -190,33 +238,34 @@ async def handle_booking_target_callback(query: CallbackQuery):
         state_manager.set_state(user_id, OTHER_PATIENT_NATIONAL_ID)
         bot = query.message.get_bot()
         chat_id = query.message.chat_id
-        try: await query.message.delete()
-        except: pass
         await activate_text_keyboard(bot, chat_id, is_registered=True)
         text = "👥 ثبت نوبت برای شخص دیگر\n\nابتدا لطفاً کد ملی ۱۰ رقمی فرد موردنظر را وارد کنید:\n\n(مثال: 0012345678)"
-        msg = await bot.send_message(chat_id, text, components=other_cancel_inline_keyboard())
-        msg_id = get_msg_id(msg)
-        if msg_id: 
-            state_manager.set_data(user_id, "last_prompt_id", msg_id)
-            state_manager.set_data(user_id, "last_prompt_text", text)
+        await send_callback_message(query, text, components=other_cancel_inline_keyboard())
 
 async def handle_booking_service_callback(query: CallbackQuery):
     user_id = query.user.id
     data = query.data or ""
     if not data.startswith("booking_service:") or state_manager.get_state(user_id) != BOOKING_SERVICE: return
+    
+    if data == "booking_service:inactive":
+        await query.message.get_bot().send_message(query.message.chat_id, "⚠️ این خدمت در حال حاضر غیرفعال است.")
+        return
+        
     try: service_id = int(data.split(":", 1)[1])
     except: return
 
-    service = get_service_record(service_id)
-    if service is None or service["name"] not in SERVICE_DEFINITIONS:
-        await send_callback_message(query, "خدمت انتخاب‌شده معتبر نیست.", components=booking_services_keyboard(get_services_for_booking()))
+    services = repository.get_services()
+    service = next((s for s in services if s["id"] == service_id), None)
+    
+    if service is None:
+        await send_callback_message(query, "خدمت انتخاب‌شده معتبر نیست.", components=custom_booking_services_keyboard(get_services_for_booking()))
         return
 
     state_manager.set_data(user_id, "service_id", service_id)
     state_manager.set_data(user_id, "service_name_base", service["name"])
     target = state_manager.get_data(user_id, "booking_target")
 
-    if service_requires_gender(service["name"]):
+    if bool(service.get("has_gender", 0)):
         if target == "self":
             _, patient = get_selected_patient(user_id)
             gender = patient.get("gender") if patient else "male"
@@ -232,7 +281,13 @@ async def show_booking_dates(query: CallbackQuery, user_id: int):
     service_id = state_manager.get_data(user_id, "service_id")
     gender = state_manager.get_data(user_id, "gender")
     base_name = state_manager.get_data(user_id, "service_name_base", "خدمت")
-    service_name = get_service_display_name(base_name, gender)
+    
+    services = repository.get_services()
+    service_obj = next((s for s in services if s["id"] == service_id), None)
+    if service_obj and bool(service_obj.get("has_gender", 0)):
+        service_name = f"{base_name} {'آقایان' if gender == 'male' else 'بانوان'}"
+    else:
+        service_name = base_name
 
     if service_id is None or gender not in ("male", "female", "all"):
         from utils.keyboards import main_keyboard
@@ -240,29 +295,63 @@ async def show_booking_dates(query: CallbackQuery, user_id: int):
         state_manager.clear_state(user_id)
         return
 
-    dates = schedule_service.get_available_dates(service_id=service_id, gender=gender, days_ahead=7)
+    from api.crud import get_schedule_config
+    from database.connection import fetch_all
+    config = get_schedule_config()
+    days_ahead = int(config.get("booking_days_ahead", 7))
+    working_days = config.get("working_days", [])
+    
+    today = datetime.now()
+    dates = []
+    valid_found = 0
+    offset = 0
+    
+    while valid_found < days_ahead and offset < 60:
+        curr = today + timedelta(days=offset)
+        if int(curr.weekday()) in working_days:
+            dates.append(curr.strftime("%Y-%m-%d"))
+            valid_found += 1
+        offset += 1
+    
     availability = {}
     for d in dates:
-        times = schedule_service.get_available_times(service_id=service_id, appointment_date=d, gender=gender)
-        has_avail = any(int(item.get("booked_count", 0)) < int(item.get("capacity", 1)) for item in times)
-        availability[d] = has_avail
+        times = repository.get_available_times(service_id=service_id, appointment_date=d, gender=gender)
+        if not times:
+            availability[d] = "disabled"
+        else:
+            has_avail = any(int(item.get("booked_count", 0)) < int(item.get("capacity", 1)) for item in times)
+            availability[d] = "available" if has_avail else "full"
 
     state_manager.set_data(user_id, "dates", dates)
     state_manager.set_state(user_id, BOOKING_DATE)
-    await send_callback_message(query, f"🏥 خدمت انتخاب شده: {service_name}\n\nلطفاً تاریخ موردنظر را انتخاب کنید:\n\n❌ تاریخ‌های تکمیل‌شده قابل انتخاب نیستند.", components=booking_dates_keyboard(dates, service_id=service_id, gender=gender, availability=availability))
+    
+    if not dates:
+        await send_callback_message(query, f"🏥 خدمت انتخاب شده: {service_name}\n\nمتأسفانه در حال حاضر هیچ ظرفیتی برای این خدمت در روزهای آینده تعریف نشده است.", components=back_to_services_keyboard())
+        return
+        
+    await send_callback_message(query, f"🏥 خدمت انتخاب شده: {service_name}\n\nلطفاً تاریخ موردنظر را انتخاب کنید:\n\n❌ تاریخ‌های تکمیل‌شده با علامت (تکمیل) مشخص شده‌اند.", components=custom_booking_dates_keyboard(dates, availability))
 
 async def handle_booking_date_callback(query: CallbackQuery):
     user_id = query.user.id
     data = query.data or ""
     if not data.startswith("booking_date:") or state_manager.get_state(user_id) != BOOKING_DATE: return
+    
+    if data.startswith("booking_date:full:"):
+        await query.message.get_bot().send_message(query.message.chat_id, "⚠️ ظرفیت این روز تکمیل شده است.")
+        return
+        
+    if data.startswith("booking_date:disabled:"):
+        await query.message.get_bot().send_message(query.message.chat_id, "⚠️ در این تاریخ هیچ نوبتی برای این خدمت تعریف نشده است.")
+        return
+        
     appointment_date = data.split(":", 1)[1]
     dates = state_manager.get_data(user_id, "dates", [])
 
-    if appointment_date not in dates or schedule_service.is_friday(appointment_date): return
+    if appointment_date not in dates: return
     service_id = state_manager.get_data(user_id, "service_id")
     gender = state_manager.get_data(user_id, "gender")
 
-    times = schedule_service.get_available_times(service_id=service_id, appointment_date=appointment_date, gender=gender)
+    times = repository.get_available_times(service_id=service_id, appointment_date=appointment_date, gender=gender)
     has_available_time = any(int(item.get("booked_count", 0)) < int(item.get("capacity", 1)) for item in times)
 
     if not has_available_time:
@@ -274,13 +363,24 @@ async def handle_booking_date_callback(query: CallbackQuery):
     state_manager.set_state(user_id, BOOKING_TIME)
 
     base_name = state_manager.get_data(user_id, "service_name_base", "خدمت")
-    service_name = get_service_display_name(base_name, gender)
-    await send_callback_message(query, f"🏥 خدمت: {service_name}\n📅 تاریخ: {to_persian_date(appointment_date)}\n\nلطفاً ساعت موردنظر را انتخاب کنید:", components=booking_times_keyboard(times, appointment_date))
+    services = repository.get_services()
+    service_obj = next((s for s in services if s["id"] == service_id), None)
+    if service_obj and bool(service_obj.get("has_gender", 0)):
+        service_name = f"{base_name} {'آقایان' if gender == 'male' else 'بانوان'}"
+    else:
+        service_name = base_name
+
+    await send_callback_message(query, f"🏥 خدمت: {service_name}\n📅 تاریخ: {to_persian_date(appointment_date)}\n\nلطفاً ساعت موردنظر را انتخاب کنید:", components=custom_booking_times_keyboard(times, appointment_date))
 
 async def handle_booking_time_callback(query: CallbackQuery):
     user_id = query.user.id
     data = query.data or ""
     if not data.startswith("booking_time:") or state_manager.get_state(user_id) != BOOKING_TIME: return
+    
+    if data.startswith("booking_time:full:"):
+        await query.message.get_bot().send_message(query.message.chat_id, "⚠️ این ساعت پر شده است.")
+        return
+        
     parts = data.split(":", 2)
     if len(parts) != 3: return
     appointment_date, start_time = parts[1], parts[2]
@@ -288,9 +388,11 @@ async def handle_booking_time_callback(query: CallbackQuery):
     service_id = state_manager.get_data(user_id, "service_id")
     gender = state_manager.get_data(user_id, "gender")
 
-    if not schedule_service.is_slot_available(service_id=service_id, appointment_date=appointment_date, start_time=start_time, gender=gender):
-        times = schedule_service.get_available_times(service_id=service_id, appointment_date=appointment_date, gender=gender)
-        await send_callback_message(query, "⚠️ این ظرفیت همین الان پر شد.\n\nلطفاً ساعت دیگری انتخاب کنید.", components=booking_times_keyboard(times, appointment_date))
+    times = repository.get_available_times(service_id=service_id, appointment_date=appointment_date, gender=gender)
+    slot = next((t for t in times if t["start_time"] == start_time), None)
+    
+    if not slot or int(slot.get("booked_count", 0)) >= int(slot.get("capacity", 1)):
+        await send_callback_message(query, "⚠️ این ظرفیت همین الان پر شد.\n\nلطفاً ساعت دیگری انتخاب کنید.", components=custom_booking_times_keyboard(times, appointment_date))
         return
 
     value = repository.get_setting("appointment_duration")
@@ -305,7 +407,13 @@ async def handle_booking_time_callback(query: CallbackQuery):
     state_manager.set_state(user_id, BOOKING_CHECKOUT)
 
     base_name = state_manager.get_data(user_id, "service_name_base")
-    service_name = get_service_display_name(base_name, gender)
+    services = repository.get_services()
+    service_obj = next((s for s in services if s["id"] == service_id), None)
+    if service_obj and bool(service_obj.get("has_gender", 0)):
+        service_name = f"{base_name} {'آقایان' if gender == 'male' else 'بانوان'}"
+    else:
+        service_name = base_name
+
     patient_name = state_manager.get_data(user_id, "patient_full_name", "بیمار")
     gender_text = "آقا" if gender == "male" else ("خانم" if gender == "female" else "عمومی")
 
@@ -328,8 +436,9 @@ async def handle_booking_checkout_callback(query: CallbackQuery):
 
     if action == "cancel":
         state_manager.clear_state(user_id)
+        try: await query.message.delete()
+        except: pass
         from utils.helpers import send_welcome_message
-        await send_callback_message(query, "❌ فرآیند دریافت نوبت لغو شد.", components=main_keyboard())
         await send_welcome_message(query, user_id)
         return
 
@@ -341,13 +450,21 @@ async def handle_booking_checkout_callback(query: CallbackQuery):
         start_time = data_cache.get("start_time")
         end_time = data_cache.get("end_time")
         target = data_cache.get("booking_target")
+        
         base_name = data_cache.get("service_name_base")
-        service_name = get_service_display_name(base_name, gender)
+        services = repository.get_services()
+        service_obj = next((s for s in services if s["id"] == service_id), None)
+        if service_obj and bool(service_obj.get("has_gender", 0)):
+            service_name = f"{base_name} {'آقایان' if gender == 'male' else 'بانوان'}"
+        else:
+            service_name = base_name
 
-        if not schedule_service.is_slot_available(service_id=service_id, appointment_date=appointment_date, start_time=start_time, gender=gender):
-            times = schedule_service.get_available_times(service_id=service_id, appointment_date=appointment_date, gender=gender)
+        times = repository.get_available_times(service_id=service_id, appointment_date=appointment_date, gender=gender)
+        slot = next((t for t in times if t["start_time"] == start_time), None)
+        
+        if not slot or int(slot.get("booked_count", 0)) >= int(slot.get("capacity", 1)):
             state_manager.set_state(user_id, BOOKING_TIME)
-            await send_callback_message(query, "⚠️ متاسفانه در همین چند لحظه ظرفیت این ساعت پر شد.\nلطفاً ساعت دیگری انتخاب کنید.", components=booking_times_keyboard(times, appointment_date))
+            await send_callback_message(query, "⚠️ متاسفانه در همین چند لحظه ظرفیت این ساعت پر شد.\nلطفاً ساعت دیگری انتخاب کنید.", components=custom_booking_times_keyboard(times, appointment_date))
             return
 
         user, patient = get_selected_patient(user_id)
@@ -360,21 +477,23 @@ async def handle_booking_checkout_callback(query: CallbackQuery):
             else:
                 try:
                     patient_id = repository.create_patient(
-                        user_id=user["id"], # <-- باگ منبع ثبت‌نام اینجا رفع شد
+                        user_id=user["id"],
                         national_id=data_cache["other_national_id"], first_name=data_cache["other_first_name"],
                         last_name=data_cache["other_last_name"], phone_number=data_cache["other_phone"], birth_date=None,
                         gender=data_cache["other_gender"], insurance=data_cache["other_insurance"]
                     )
                     repository.add_patient_profile(user["id"], patient_id)
                 except Exception:
-                    from utils.keyboards import clinic_info_keyboard
-                    await send_callback_message(query, "❌ خطا در ذخیره اطلاعات. لطفاً مجدداً تلاش کنید.", components=clinic_info_keyboard())
+                    try: await query.message.delete()
+                    except: pass
+                    await query.message.get_bot().send_message(query.message.chat_id, "❌ خطا در ذخیره اطلاعات. لطفاً مجدداً تلاش کنید.")
                     state_manager.clear_state(user_id)
                     return
         else:
             if not patient: 
-                from utils.keyboards import clinic_info_keyboard
-                await send_callback_message(query, "❌ خطای دسترسی به اطلاعات شما.", components=clinic_info_keyboard())
+                try: await query.message.delete()
+                except: pass
+                await query.message.get_bot().send_message(query.message.chat_id, "❌ خطای دسترسی به اطلاعات شما.")
                 state_manager.clear_state(user_id)
                 return
             patient_id = patient["id"]
@@ -397,20 +516,22 @@ async def handle_booking_checkout_callback(query: CallbackQuery):
                 await send_callback_message(query, error_msg, components=back_to_services_keyboard())
                 return
             else:
-                from utils.keyboards import clinic_info_keyboard
-                await send_callback_message(query, "❌ خطا در ثبت نوبت. لطفاً دوباره تلاش کنید.", components=clinic_info_keyboard())
+                try: await query.message.delete()
+                except: pass
+                await query.message.get_bot().send_message(query.message.chat_id, "❌ خطا در ثبت نوبت. لطفاً دوباره تلاش کنید.")
                 state_manager.clear_state(user_id)
                 return
         except Exception:
-            from utils.keyboards import clinic_info_keyboard
-            await send_callback_message(query, "❌ خطا در ثبت نوبت. لطفاً دوباره تلاش کنید.", components=clinic_info_keyboard())
+            try: await query.message.delete()
+            except: pass
+            await query.message.get_bot().send_message(query.message.chat_id, "❌ خطا در ثبت نوبت. لطفاً دوباره تلاش کنید.")
             state_manager.clear_state(user_id)
             return
 
         if appointment_id is None:
             state_manager.set_state(user_id, BOOKING_TIME)
-            times = schedule_service.get_available_times(service_id=service_id, appointment_date=appointment_date, gender=gender)
-            await send_callback_message(query, "⚠️ متاسفانه در همین لحظه ظرفیت این ساعت پر شد.\nلطفاً ساعت دیگری انتخاب کنید.", components=booking_times_keyboard(times, appointment_date))
+            times = repository.get_available_times(service_id=service_id, appointment_date=appointment_date, gender=gender)
+            await send_callback_message(query, "⚠️ متاسفانه در همین لحظه ظرفیت این ساعت پر شد.\nلطفاً ساعت دیگری انتخاب کنید.", components=custom_booking_times_keyboard(times, appointment_date))
             return
 
         state_manager.clear_state(user_id)
@@ -434,6 +555,8 @@ async def handle_booking_back_callback(query: CallbackQuery):
 
     if destination == "home":
         state_manager.clear_state(user_id)
+        try: await query.message.delete()
+        except: pass
         from utils.helpers import send_welcome_message
         await send_welcome_message(query, user_id)
         return
@@ -450,7 +573,17 @@ async def handle_booking_back_callback(query: CallbackQuery):
         gender = state_manager.get_data(user_id, "gender")
         dates = state_manager.get_data(user_id, "dates", [])
         state_manager.set_state(user_id, BOOKING_DATE)
-        await send_callback_message(query, "🗓 لطفاً تاریخ موردنظر را انتخاب کنید:\n\n❌ تاریخ‌های تکمیل‌شده قابل انتخاب نیستند.", components=booking_dates_keyboard(dates, service_id, gender))
+        
+        availability = {}
+        for d in dates:
+            times = repository.get_available_times(service_id=service_id, appointment_date=d, gender=gender)
+            if not times:
+                availability[d] = "disabled"
+            else:
+                has_avail = any(int(item.get("booked_count", 0)) < int(item.get("capacity", 1)) for item in times)
+                availability[d] = "available" if has_avail else "full"
+            
+        await send_callback_message(query, "🗓 لطفاً تاریخ موردنظر را انتخاب کنید:\n\n❌ تاریخ‌های تکمیل‌شده با علامت (تکمیل) مشخص شده‌اند.", components=custom_booking_dates_keyboard(dates, availability))
         return
 
 async def process_booking_message(message: Message) -> bool:

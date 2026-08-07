@@ -12,7 +12,7 @@ from utils.helpers import to_date_label
 
 run_migrations()
 
-app = FastAPI(title="Clinic Dashboard API", version="3.8.5")
+app = FastAPI(title="Clinic Dashboard API", version="3.8.6")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -25,6 +25,7 @@ class DeskBookRequest(BaseModel): national_id: str; first_name: Optional[str] = 
 class AppointmentCreateRequest(BaseModel): patient_id: int; service_id: int; appointment_date: str; start_time: str; gender: str = "all"
 class ServiceCreateRequest(BaseModel): name: str; price: int = 0; has_gender: int = 0
 class ServiceUpdateRequest(BaseModel): name: str; price: int; has_gender: int
+class ServiceOrderRequest(BaseModel): ordered_ids: List[int]
 class ToggleServiceRequest(BaseModel): is_active: int
 class ScheduleConfigOverride(BaseModel): date: str; service_id: int; slots: List[Dict[str, str]]
 
@@ -62,15 +63,22 @@ def desk_book(payload: DeskBookRequest) -> dict:
     except Exception: raise HTTPException(status_code=500, detail="خطای سرور در ثبت اطلاعات.")
 
 @app.get("/api/services")
-def get_all_services() -> List[Dict[str, Any]]: return repository.get_services()
+def get_all_services() -> List[Dict[str, Any]]: 
+    return crud.get_all_services_admin()
 
 @app.get("/api/services/all")
-def get_all_services_admin() -> List[Dict[str, Any]]: return crud.get_all_services_admin()
+def get_all_services_admin() -> List[Dict[str, Any]]: 
+    return crud.get_all_services_admin()
 
 @app.post("/api/services")
 def create_service(payload: ServiceCreateRequest) -> dict:
     try: return {"success": True, "service_id": crud.add_service(payload.name, payload.price, payload.has_gender)}
     except ValueError: raise HTTPException(status_code=400, detail="خدمتی با این نام قبلاً ثبت شده است.")
+
+@app.put("/api/services/reorder")
+def reorder_services(payload: ServiceOrderRequest) -> dict:
+    crud.update_services_order(payload.ordered_ids)
+    return {"success": True}
 
 @app.put("/api/services/{service_id}")
 def update_service(service_id: int, payload: ServiceUpdateRequest) -> dict:
@@ -173,7 +181,7 @@ def get_slots(date: str, service_id: int) -> List[Dict[str, Any]]: return crud.g
 def override_slots(payload: ScheduleConfigOverride, background_tasks: BackgroundTasks) -> dict:
     cancelled_bale_ids = crud.override_date_slots(payload.date, payload.service_id, payload.slots)
     for bale_id in cancelled_bale_ids:
-        msg = f"⚠️ کاربر گرامی، به دلیل تغییرات در زمان‌بندی پزشک، نوبت شما در تاریخ {to_date_label(payload.date)} لغو گردید. لطفاً مجدداً برای دریافت نوبت اقدام نمایید."
+        msg = f"⚠️ کاربر گرامی، به دلیل تغییرات در برنامه، نوبت شما در تاریخ {to_date_label(payload.date)} لغو گردید. لطفاً مجدداً برای دریافت نوبت اقدام نمایید."
         background_tasks.add_task(send_bale_notification, bale_id, msg)
     return {"success": True}
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Search, UserPlus, CalendarPlus, CheckCircle, Save, X, Trash2, XCircle, Edit } from "lucide-react";
+import { Search, UserPlus, CalendarPlus, CheckCircle, Save, X, Trash2, XCircle, Edit, ChevronLeft } from "lucide-react";
 import DatePicker, { DateObject } from "react-multi-date-picker";
 import persian from "react-date-object/calendars/persian";
 import persian_fa from "react-date-object/locales/persian_fa";
@@ -28,13 +28,51 @@ const isValidIranianNationalId = (input: string) => {
 const getServiceDisplayName = (serviceName: string, gender?: string) => {
   if (!serviceName) return "";
   let display = serviceName;
-  if (["بادکش", "حجامت عام", "زالودرمانی"].some(s => display.includes(s))) {
+  if (["بادکش", "حجامت عام", "زالودرمانی", "ماساژ"].some(s => display.includes(s))) {
     if (gender === "male") display += " آقایان"; else if (gender === "female") display += " بانوان";
   }
   return display;
 };
 
 const getCurrentTime = () => new DateObject({ calendar: persian, locale: custom_fa }).format("HH:mm");
+
+const CustomSelect = ({ value, options, onChange, placeholder = "انتخاب کنید...", disabled = false, grid = false }: { value: string, options: {value: string, label: string}[], onChange: (val: string) => void, placeholder?: string, disabled?: boolean, grid?: boolean }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setIsOpen(false); };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, []);
+
+  const selectedOption = options.find(o => o.value === value);
+
+  return (
+    <div className="relative w-full" ref={ref}>
+      <div onClick={() => !disabled && setIsOpen(!isOpen)} 
+           className={`w-full px-4 h-12 border rounded-xl flex items-center justify-between shadow-sm transition-all ${disabled ? 'bg-gray-100 text-gray-400 border-gray-200 cursor-not-allowed' : 'bg-white border-gray-200 cursor-pointer hover:border-blue-400 focus:ring-2 focus:ring-blue-500'}`}>
+        <span className={`font-bold text-sm truncate ${selectedOption ? 'text-gray-700' : 'text-gray-400'}`}>
+          {selectedOption ? selectedOption.label : placeholder}
+        </span>
+        <ChevronLeft className={`w-5 h-5 text-gray-400 transition-transform ${isOpen ? '-rotate-90' : ''}`} />
+      </div>
+      {isOpen && !disabled && (
+        <div className="absolute z-50 mt-2 w-full min-w-max bg-white border border-gray-100 rounded-xl shadow-xl overflow-hidden p-2 right-0 origin-top animate-fade-in">
+          <div className={`max-h-64 overflow-y-auto ${grid && options.length > 5 ? 'grid grid-cols-1 sm:grid-cols-2 gap-1' : 'flex flex-col gap-1'}`}>
+            {options.map((opt) => (
+              <div key={opt.value} onClick={() => { onChange(opt.value); setIsOpen(false); }}
+                   className={`px-3 py-2.5 rounded-lg font-bold text-sm cursor-pointer transition-colors flex items-center gap-2 ${value === opt.value ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-50 text-gray-700'}`}>
+                {value === opt.value ? <CheckCircle className="w-4 h-4 text-blue-600 shrink-0"/> : <div className="w-4 h-4 shrink-0"/>}
+                <span className="truncate">{opt.label}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
 
 const TimeInput = ({ value, onChange }: { value: string, onChange: (val: string) => void }) => {
   const [h, m] = (value || "00:00").split(":");
@@ -168,7 +206,12 @@ export default function FastDeskPage() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLFormElement>) => { if (e.key === 'Enter' && (e.target as HTMLElement).tagName !== 'BUTTON') e.preventDefault(); };
+  
   const currentActiveGender = patient ? patient.gender : patientGender;
+  const serviceOptions = services.map(s => ({
+    value: s.id.toString(),
+    label: getServiceDisplayName(s.name, currentActiveGender)
+  }));
 
   return (
     <div className="min-h-screen px-8 w-full relative bg-gray-50">
@@ -282,10 +325,13 @@ export default function FastDeskPage() {
           <form onSubmit={handleFinalSubmit} onKeyDown={handleKeyDown} className="space-y-6">
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-2">انتخاب خدمت:</label>
-              <select required value={serviceId} onChange={e => setServiceId(e.target.value)} className="w-full px-4 h-12 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white cursor-pointer shadow-sm font-bold text-sm">
-                <option value="" disabled>یک خدمت را انتخاب کنید...</option>
-                {services.map(s => <option key={s.id} value={s.id}>{getServiceDisplayName(s.name, currentActiveGender)}</option>)}
-              </select>
+              <CustomSelect 
+                value={serviceId} 
+                onChange={setServiceId} 
+                options={serviceOptions} 
+                placeholder="یک خدمت را انتخاب کنید..." 
+                grid={true}
+              />
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="flex flex-col relative">

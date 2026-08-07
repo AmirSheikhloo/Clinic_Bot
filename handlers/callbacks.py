@@ -32,13 +32,15 @@ from utils.keyboards import (
 
 async def send_callback_message(query: CallbackQuery, text: str, components=None):
     bot = query.message.get_bot()
-    try: await query.message.delete()
-    except: pass
-    msg = await bot.send_message(query.message.chat_id, text, components=components)
-    msg_id = get_msg_id(msg)
-    if msg_id: 
-        state_manager.set_data(query.user.id, "last_prompt_id", msg_id)
-        state_manager.set_data(query.user.id, "last_prompt_text", text)
+    try: await query.message.edit(text, components=components)
+    except Exception:
+        try: await query.message.delete()
+        except: pass
+        msg = await bot.send_message(query.message.chat_id, text, components=components)
+        msg_id = get_msg_id(msg)
+        if msg_id: 
+            state_manager.set_data(query.user.id, "last_prompt_id", msg_id)
+            state_manager.set_data(query.user.id, "last_prompt_text", text)
 
 async def handle_callback(query: CallbackQuery) -> None:
     data = query.data or ""
@@ -62,16 +64,13 @@ async def handle_callback(query: CallbackQuery) -> None:
         bot = query.message.get_bot()
         try: await query.message.delete()
         except: pass
-        await bot.send_message(query.message.chat_id, "❌ فرایند ثبت‌نام لغو شد.", components=main_keyboard())
         await send_welcome_message(query, user_id)
         return
 
     if data == "patient:edit_cancel":
         state_manager.clear_state(user_id)
-        bot = query.message.get_bot()
         try: await query.message.delete()
         except: pass
-        await bot.send_message(query.message.chat_id, "❌ فرایند ویرایش لغو شد.", components=main_keyboard())
         await handle_patient_lookup(query)
         return
 
@@ -84,7 +83,6 @@ async def handle_callback(query: CallbackQuery) -> None:
         bot = query.message.get_bot()
         chat_id = query.message.chat_id
         
-        # ترتیب برعکس شد: نام برمی‌گردد به کد ملی
         if state == REGISTRATION_NAME:
             state_manager.set_state(user_id, REGISTRATION_NATIONAL_ID)
             await send_callback_message(query, "✨ کاربر گرامی، جهت بررسی پرونده یا ثبت‌نام جدید، لطفاً ابتدا کد ملی ۱۰ رقمی خود را وارد کنید:\n\n(مثال: 0012345678)", components=cancel_only_inline_keyboard("❌ لغو ثبت‌نام"))

@@ -22,12 +22,15 @@ def _apply_patches():
         except sqlite3.OperationalError: pass
         try: cursor.execute("ALTER TABLE services ADD COLUMN price INTEGER DEFAULT 0")
         except sqlite3.OperationalError: pass
+        try: cursor.execute("ALTER TABLE services ADD COLUMN order_index INTEGER DEFAULT 0")
+        except sqlite3.OperationalError: pass
         try: cursor.execute("CREATE TABLE IF NOT EXISTS overridden_dates (date VARCHAR, service_id INTEGER, PRIMARY KEY(date, service_id))")
         except sqlite3.OperationalError: pass
         try: cursor.execute("CREATE TABLE IF NOT EXISTS override_logs (id INTEGER PRIMARY KEY AUTOINCREMENT, target_date VARCHAR, service_id INTEGER, service_name VARCHAR, details TEXT, status_msg VARCHAR, logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)")
         except sqlite3.OperationalError: pass
         
-        cursor.execute("UPDATE services SET has_gender = 1 WHERE name IN ('بادکش', 'حجامت عام', 'زالودرمانی') AND has_gender = 0")
+        try: cursor.execute("UPDATE services SET has_gender = 1 WHERE name IN ('بادکش', 'حجامت عام', 'زالودرمانی', 'ماساژ') AND has_gender = 0")
+        except sqlite3.OperationalError: pass
         conn.commit()
     try:
         config = get_schedule_config()
@@ -42,12 +45,17 @@ def get_dict_cursor(conn):
 
 def get_general_settings() -> Dict[str, str]:
     with sqlite3.connect(DB_PATH) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT key, value FROM settings WHERE key IN ('clinic_name', 'clinic_phone', 'clinic_address', 'working_hours_text')")
+        cursor = get_dict_cursor(conn)
+        cursor.execute("SELECT key, value FROM settings WHERE key IN ('clinic_name', 'clinic_phone', 'clinic_address', 'working_hours_text', 'working_hours')")
         rows = cursor.fetchall()
         result = {"clinic_name": "", "clinic_phone": "", "clinic_address": "", "working_hours_text": ""}
         for r in rows:
-            if r[1]: result[r[0]] = str(r[1])
+            if r["value"] is not None:
+                val_str = str(r["value"])
+                if r["key"] == "working_hours" and not result["working_hours_text"]:
+                    result["working_hours_text"] = val_str
+                else:
+                    result[r["key"]] = val_str
         return result
 
 def save_general_setting(key: str, value: str):
@@ -81,6 +89,12 @@ def get_schedule_config() -> Dict[str, Any]:
             if sid not in config["default_times"]:
                 config["default_times"][sid] = {}
                 
+            if s["has_gender"] == 1 and "all" in config["default_times"][sid]:
+                old_times = config["default_times"][sid].pop("all")
+                config["default_times"][sid]["male"] = list(old_times)
+                config["default_times"][sid]["female"] = list(old_times)
+                changed = True
+                
             has_times = False
             for gender_key, times_list in config["default_times"][sid].items():
                 if len(times_list) > 0:
@@ -110,27 +124,42 @@ def sync_future_slots(config: Dict[str, Any]):
         weekly_times = config.get("weekly_times", {})
         today = date.today()
         
+        # پاک کردن ظرفیت‌های آینده که استثنا (override) نیستند تا تداخل ایجاد نشود
+        cursor.execute("""
+            DELETE FROM appointment_slots 
+            WHERE appointment_date >= ? 
+            AND NOT EXISTS (
+                SELECT 1 FROM overridden_dates 
+                WHERE overridden_dates.date = appointment_slots.appointment_date 
+                AND overridden_dates.service_id = appointment_slots.service_id
+            )
+        """, (today.isoformat(),))
+        
         cursor.execute("SELECT date, service_id FROM overridden_dates")
         overridden = {(r[0], r[1]) for r in cursor.fetchall()}
         
-        for offset in range(0, days_ahead + 1):
+        valid_days_found = 0
+        offset = 0
+        while valid_days_found < days_ahead and offset < 90: 
             curr_date = today + timedelta(days=offset)
             date_str = curr_date.isoformat()
             wd = str(curr_date.weekday())
+            offset += 1
             
             if int(wd) not in working_days: 
-                cursor.execute("DELETE FROM appointment_slots WHERE appointment_date = ? AND service_id NOT IN (SELECT service_id FROM overridden_dates WHERE date = ?)", (date_str, date_str))
                 continue
                 
+            valid_days_found += 1
+            
             all_services = set(list(default_times.keys()) + list(weekly_times.get(wd, {}).keys()))
             for s_id in all_services:
                 if (date_str, int(s_id)) in overridden:
                     continue
                 
-                cursor.execute("DELETE FROM appointment_slots WHERE appointment_date = ? AND service_id = ?", (date_str, int(s_id)))
-                
-                s_times = weekly_times.get(wd, {}).get(s_id)
-                if s_times is None or len(s_times) == 0:
+                # هوشمندی تقویم: اگر روز اختصاصی تعریف شده از آن استفاده کن، در غیر اینصورت پیش‌فرض
+                if s_id in weekly_times.get(wd, {}):
+                    s_times = weekly_times[wd][s_id]
+                else:
                     s_times = default_times.get(s_id, {})
                     
                 for gender, times in s_times.items():
@@ -344,7 +373,7 @@ def soft_delete_patient(patient_id: int) -> bool:
 def get_all_appointments() -> List[Dict[str, Any]]:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = get_dict_cursor(conn)
-        query = "SELECT a.*, p.first_name, p.last_name, p.national_id, p.phone_number, p.user_id, p.gender as patient_gender, s.name as base_service_name FROM appointments a LEFT JOIN patients p ON a.patient_id = p.id LEFT JOIN services s ON a.service_id = s.id ORDER BY a.appointment_date DESC, a.start_time ASC"
+        query = "SELECT a.*, p.first_name, p.last_name, p.national_id, p.phone_number, p.user_id, p.gender as patient_gender, s.name as base_service_name, s.has_gender as s_has_gender FROM appointments a LEFT JOIN patients p ON a.patient_id = p.id LEFT JOIN services s ON a.service_id = s.id ORDER BY a.appointment_date DESC, a.start_time ASC"
         cursor.execute(query)
         results = []
         for row in cursor.fetchall():
@@ -352,7 +381,7 @@ def get_all_appointments() -> List[Dict[str, Any]]:
             base_name = d.get("base_service_name") or ""
             target_gender = d.get("gender")
             if target_gender == "all" or not target_gender: target_gender = d.get("patient_gender")
-            if any(s in base_name for s in ["بادکش", "حجامت عام", "زالودرمانی"]):
+            if d.get("s_has_gender") == 1:
                 if target_gender == "male": d["service_name"] = f"{base_name} آقایان"
                 elif target_gender == "female": d["service_name"] = f"{base_name} بانوان"
                 else: d["service_name"] = base_name
@@ -364,7 +393,7 @@ def get_todays_appointments() -> List[Dict[str, Any]]:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = get_dict_cursor(conn)
         today = date.today().isoformat()
-        query = "SELECT a.*, p.first_name, p.last_name, p.national_id, p.phone_number, p.gender as patient_gender, s.name as base_service_name FROM appointments a LEFT JOIN patients p ON a.patient_id = p.id LEFT JOIN services s ON a.service_id = s.id WHERE a.appointment_date = ? ORDER BY a.start_time ASC"
+        query = "SELECT a.*, p.first_name, p.last_name, p.national_id, p.phone_number, p.gender as patient_gender, s.name as base_service_name, s.has_gender as s_has_gender FROM appointments a LEFT JOIN patients p ON a.patient_id = p.id LEFT JOIN services s ON a.service_id = s.id WHERE a.appointment_date = ? ORDER BY a.start_time ASC"
         cursor.execute(query, (today,))
         results = []
         for row in cursor.fetchall():
@@ -372,7 +401,7 @@ def get_todays_appointments() -> List[Dict[str, Any]]:
             base_name = d.get("base_service_name") or ""
             target_gender = d.get("gender")
             if target_gender == "all" or not target_gender: target_gender = d.get("patient_gender")
-            if any(s in base_name for s in ["بادکش", "حجامت عام", "زالودرمانی"]):
+            if d.get("s_has_gender") == 1:
                 if target_gender == "male": d["service_name"] = f"{base_name} آقایان"
                 elif target_gender == "female": d["service_name"] = f"{base_name} بانوان"
                 else: d["service_name"] = base_name
@@ -383,10 +412,17 @@ def get_todays_appointments() -> List[Dict[str, Any]]:
 def get_appointment_with_user_info(appointment_id: int) -> Optional[Dict[str, Any]]:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = get_dict_cursor(conn)
-        query = "SELECT a.*, p.first_name, p.last_name, s.name as service_name, u.bale_user_id FROM appointments a LEFT JOIN patients p ON a.patient_id = p.id LEFT JOIN users u ON p.user_id = u.id LEFT JOIN services s ON a.service_id = s.id WHERE a.id = ?"
+        query = "SELECT a.*, p.first_name, p.last_name, s.name as service_name, s.has_gender as s_has_gender, u.bale_user_id FROM appointments a LEFT JOIN patients p ON a.patient_id = p.id LEFT JOIN users u ON p.user_id = u.id LEFT JOIN services s ON a.service_id = s.id WHERE a.id = ?"
         cursor.execute(query, (appointment_id,))
         row = cursor.fetchone()
-        return dict(row) if row else None
+        if not row: return None
+        d = dict(row)
+        base_name = d.get("service_name") or ""
+        target_gender = d.get("gender")
+        if d.get("s_has_gender") == 1:
+            if target_gender == "male": d["service_name"] = f"{base_name} آقایان"
+            elif target_gender == "female": d["service_name"] = f"{base_name} بانوان"
+        return d
 
 def update_appointment_status(appointment_id: int, status: str) -> bool:
     with sqlite3.connect(DB_PATH) as conn:
@@ -405,7 +441,7 @@ def create_appointment_by_staff(patient_id: int, service_id: int, appointment_da
 def get_all_services_admin() -> List[Dict[str, Any]]:
     with sqlite3.connect(DB_PATH) as conn:
         cursor = get_dict_cursor(conn)
-        cursor.execute("SELECT * FROM services WHERE is_deleted = 0 ORDER BY id ASC")
+        cursor.execute("SELECT * FROM services WHERE is_deleted = 0 ORDER BY order_index ASC, id ASC")
         return [dict(row) for row in cursor.fetchall()]
 
 def add_service(name: str, price: int = 0, has_gender: int = 0) -> int:
@@ -414,9 +450,19 @@ def add_service(name: str, price: int = 0, has_gender: int = 0) -> int:
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM services WHERE name = ? AND is_deleted = 0", (name,))
         if cursor.fetchone(): raise ValueError("DuplicateService")
-        cursor.execute("INSERT INTO services (name, price, has_gender, is_active, is_deleted) VALUES (?, ?, ?, 1, 0)", (name, price, has_gender))
+        cursor.execute("SELECT MAX(order_index) FROM services WHERE is_deleted = 0")
+        max_idx = cursor.fetchone()[0] or 0
+        cursor.execute("INSERT INTO services (name, price, has_gender, is_active, is_deleted, order_index) VALUES (?, ?, ?, 1, 0, ?)", (name, price, has_gender, max_idx + 1))
         conn.commit()
         return cursor.lastrowid
+
+def update_services_order(ordered_ids: List[int]) -> bool:
+    with sqlite3.connect(DB_PATH) as conn:
+        cursor = conn.cursor()
+        for index, s_id in enumerate(ordered_ids):
+            cursor.execute("UPDATE services SET order_index = ? WHERE id = ?", (index, s_id))
+        conn.commit()
+        return True
 
 def toggle_service_status(service_id: int, is_active: int) -> bool:
     with sqlite3.connect(DB_PATH) as conn:

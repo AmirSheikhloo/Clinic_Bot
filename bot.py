@@ -1,9 +1,11 @@
+import json
 from bale import Bot
 
 from config.config import BALE_TOKEN
 from database.migrations import run_migrations
 from database.seed import seed
 from database.repository import repository
+from api.crud import get_general_settings
 
 from handlers.start import handle_start
 from handlers.patients import (
@@ -11,6 +13,7 @@ from handlers.patients import (
     handle_patient_lookup,
     process_registration_message,
     handle_patient_edit,
+    safe_delete_previous_inline
 )
 from handlers.appointments import (
     handle_my_appointments,
@@ -49,15 +52,45 @@ bot = Bot(token=BALE_TOKEN)
 # Clinic Information
 # =========================================================
 async def handle_clinic_info(message):
-    await message.reply(
-        "🏥 درمانگاه طب سنتی دکتر ولی‌الله گرایلی ملک\n\n"
-        "📍 آدرس: تهران، بزرگراه اشرفی اصفهانی، بالاتر از سه راه مرزداران، کوچه شهید ماشاالله ردایی، طبقه دوم مسجد حضرت ابوالفضل (دارالشفای حضرت ابوالفضل)\n\n"
-        "📞 تلفن‌های تماس:\n"
-        "1️⃣ 02146292250\n"
-        "2️⃣ 02144386143\n\n"
-        "🕒 تایم کاری: همه‌روزه به جز جمعه‌ها",
-        components=clinic_info_keyboard(),
-    )
+    settings = get_general_settings()
+    name = settings.get("clinic_name", "").strip()
+    address = settings.get("clinic_address", "").strip()
+    phone_data = settings.get("clinic_phone", "").strip()
+    working_hours = settings.get("working_hours_text", "").strip()
+    
+    if not working_hours:
+        working_hours = settings.get("working_hours", "").strip()
+
+    lines = []
+    
+    if name:
+        lines.append(f"🏥 {name}\n")
+    if address:
+        lines.append(f"📍 آدرس: {address}\n")
+        
+    if phone_data:
+        try:
+            phones = json.loads(phone_data)
+            phones = [p for p in phones if p.strip()]
+        except Exception:
+            phones = [p.strip() for p in phone_data.split("یا") if p.strip()]
+        
+        if phones:
+            lines.append("📞 تلفن‌های تماس:")
+            emojis = ["1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣"]
+            for i, p in enumerate(phones[:5]):
+                lines.append(f"{emojis[i]} {p}")
+            lines.append("")
+            
+    if working_hours:
+        lines.append(f"🕒 تایم کاری: {working_hours}")
+        
+    text = "\n".join(lines).strip()
+    
+    if not text:
+        text = "اطلاعاتی ثبت نشده است."
+        
+    await message.reply(text, components=clinic_info_keyboard())
 
 # =========================================================
 # Ready
@@ -83,26 +116,33 @@ async def on_message(message):
     # Commands & Menu Triggers
     # =====================================================
     if text == "/start":
+        state_manager.clear_state(user_id)
+        await safe_delete_previous_inline(message, user_id)
         await handle_start(message)
         return
 
     if text in ("/register", "📝 ثبت اطلاعات"):
+        await safe_delete_previous_inline(message, user_id)
         await handle_patient_registration(message)
         return
 
     if text == "/patient":
+        await safe_delete_previous_inline(message, user_id)
         await handle_patient_lookup(message)
         return
 
     if text == "/appointments":
+        await safe_delete_previous_inline(message, user_id)
         await handle_my_appointments(message)
         return
 
     if text == "/cancel":
+        await safe_delete_previous_inline(message, user_id)
         await handle_cancel_appointment(message)
         return
 
     if text == "/book":
+        await safe_delete_previous_inline(message, user_id)
         await handle_booking_start(message)
         return
 
@@ -110,18 +150,22 @@ async def on_message(message):
     # Main Menu
     # =====================================================
     if text == "📅 دریافت نوبت":
+        await safe_delete_previous_inline(message, user_id)
         await handle_booking_start(message)
         return
 
     if text == "📋 نوبت‌های من":
+        await safe_delete_previous_inline(message, user_id)
         await handle_my_appointments(message)
         return
 
     if text == "👤 اطلاعات بیمار":
+        await safe_delete_previous_inline(message, user_id)
         await handle_patient_lookup(message)
         return
 
     if text == "🏥 اطلاعات درمانگاه":
+        await safe_delete_previous_inline(message, user_id)
         await handle_clinic_info(message)
         return
 
@@ -129,11 +173,13 @@ async def on_message(message):
     # Patient Submenu
     # =====================================================
     if text in ("✏️ ویرایش اطلاعات بیمار", "ویرایش اطلاعات"):
+        await safe_delete_previous_inline(message, user_id)
         await handle_patient_edit(message)
         return
 
     if text in ("↩️ بازگشت به منوی اصلی", "لغو"):
         state_manager.clear_state(user_id)
+        await safe_delete_previous_inline(message, user_id)
         await send_welcome_message(message, user_id)
         return
 

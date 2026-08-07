@@ -1,5 +1,5 @@
 import asyncio
-from datetime import date
+from datetime import date, datetime, timedelta
 from bale import Message, CallbackQuery
 
 from database.repository import repository
@@ -24,10 +24,12 @@ def can_cancel_appointment(appointment) -> bool:
     if appointment is None or appointment.get("status") != "scheduled":
         return False
     try:
-        appointment_date = date.fromisoformat(appointment.get("appointment_date"))
+        dt_str = f"{appointment.get('appointment_date')} {appointment.get('start_time')}"
+        appointment_datetime = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
     except (TypeError, ValueError):
         return False
-    return appointment_date > date.today()
+    
+    return (appointment_datetime - datetime.now()) > timedelta(hours=24)
 
 def appointment_status_text(status: str) -> str:
     status_names = {
@@ -56,14 +58,15 @@ async def send_callback_message(query: CallbackQuery, text: str, components=None
         return
     bot = query.message.get_bot()
     try:
-        await query.message.delete()
+        await query.message.edit(text, components=components)
     except Exception:
-        pass
-    msg = await bot.send_message(query.message.chat_id, text, components=components)
-    msg_id = get_msg_id(msg)
-    if msg_id: 
-        state_manager.set_data(query.user.id, "last_prompt_id", msg_id)
-        state_manager.set_data(query.user.id, "last_prompt_text", text)
+        try: await query.message.delete()
+        except: pass
+        msg = await bot.send_message(query.message.chat_id, text, components=components)
+        msg_id = get_msg_id(msg)
+        if msg_id: 
+            state_manager.set_data(query.user.id, "last_prompt_id", msg_id)
+            state_manager.set_data(query.user.id, "last_prompt_text", text)
 
 async def get_user_appointment(query: CallbackQuery, appointment_id: int):
     user = repository.get_user_by_bale_id(query.user.id)
@@ -101,6 +104,8 @@ async def handle_appointment_callback(query: CallbackQuery) -> None:
 
     if data == "appointments:home":
         state_manager.clear_state(query.user.id)
+        try: await query.message.delete()
+        except: pass
         await send_welcome_message(query, query.user.id)
         return
 
@@ -127,7 +132,9 @@ async def handle_appointment_callback(query: CallbackQuery) -> None:
 async def handle_current_appointments_callback(query: CallbackQuery) -> None:
     user = repository.get_user_by_bale_id(query.user.id)
     if user is None:
-        await send_callback_message(query, "اطلاعات کاربری شما پیدا نشد.", components=main_keyboard())
+        try: await query.message.delete()
+        except: pass
+        await query.message.get_bot().send_message(query.message.chat_id, "اطلاعات کاربری شما پیدا نشد.")
         return
     appointments = repository.get_current_appointments_for_user(user["id"])
     if not appointments:
@@ -138,7 +145,9 @@ async def handle_current_appointments_callback(query: CallbackQuery) -> None:
 async def handle_appointment_history_callback(query: CallbackQuery) -> None:
     user = repository.get_user_by_bale_id(query.user.id)
     if user is None:
-        await send_callback_message(query, "اطلاعات کاربری شما پیدا نشد.", components=main_keyboard())
+        try: await query.message.delete()
+        except: pass
+        await query.message.get_bot().send_message(query.message.chat_id, "اطلاعات کاربری شما پیدا نشد.")
         return
     appointments = repository.get_appointment_history_for_user(user["id"])
     if not appointments:
@@ -163,11 +172,12 @@ async def handle_appointment_detail_callback(query: CallbackQuery, prefix: str) 
 
     if appointment.get("status") == "scheduled" and not can_cancel:
         try:
-            appointment_date = date.fromisoformat(appointment.get("appointment_date"))
-        except (TypeError, ValueError):
-            appointment_date = None
-        if appointment_date is not None and appointment_date <= date.today():
-            text += "\n\n⚠️ این نوبت دیگر قابل لغو نیست."
+            dt_str = f"{appointment.get('appointment_date')} {appointment.get('start_time')}"
+            appointment_datetime = datetime.strptime(dt_str, "%Y-%m-%d %H:%M")
+            if appointment_datetime - datetime.now() <= timedelta(hours=24):
+                text += "\n\n⚠️ این نوبت به دلیل فاصله کمتر از ۲۴ ساعت تا زمان مراجعه، دیگر قابل لغو نیست."
+        except:
+            pass
 
     await send_callback_message(query, text, components=appointment_detail_keyboard(appointment_id=appointment.get("id"), can_cancel=can_cancel))
 
@@ -188,7 +198,7 @@ async def handle_appointment_cancel_callback(query: CallbackQuery) -> None:
         return
 
     if not can_cancel_appointment(appointment):
-        await send_callback_message(query, "⚠️ لغو این نوبت امکان‌پذیر نیست.\n\nلغو نوبت فقط تا یک روز قبل از تاریخ نوبت امکان‌پذیر است.", components=appointment_detail_keyboard(appointment_id, can_cancel=False))
+        await send_callback_message(query, "⚠️ لغو این نوبت امکان‌پذیر نیست.\n\nلغو نوبت فقط تا ۲۴ ساعت قبل از زمان تعیین‌شده امکان‌پذیر است.", components=appointment_detail_keyboard(appointment_id, can_cancel=False))
         return
 
     service_name = get_service_display_name(appointment.get('service_name', ''), appointment.get('gender'))
@@ -216,7 +226,7 @@ async def handle_appointment_cancel_confirm_callback(query: CallbackQuery) -> No
         return
 
     if not can_cancel_appointment(appointment):
-        await send_callback_message(query, "⚠️ زمان مجاز لغو این نوبت گذشته است.", components=appointment_detail_keyboard(appointment_id, can_cancel=False))
+        await send_callback_message(query, "⚠️ زمان مجاز لغو این نوبت (حداقل ۲۴ ساعت قبل) گذشته است.", components=appointment_detail_keyboard(appointment_id, can_cancel=False))
         return
 
     try:

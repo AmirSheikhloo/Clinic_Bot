@@ -39,7 +39,6 @@ class Repository:
         existing = None
         if national_id: existing = self.get_patient_by_national_id(national_id)
         if existing: 
-            # در صورتی که بیمار وجود دارد اما به این یوزر متصل نیست، متصلش کن
             if user_id is not None: self.add_patient_profile(user_id, existing["id"])
             return existing["id"]
         patient_id = self.execute("INSERT INTO patients (user_id, national_id, first_name, last_name, phone_number, birth_date, gender, insurance, address) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", (user_id, national_id, first_name, last_name, final_phone, birth_date, gender, insurance, address))
@@ -96,7 +95,8 @@ class Repository:
         return self.fetch_one("SELECT * FROM services WHERE id = ? AND is_active = 1", (service_id,))
 
     def get_services(self) -> list[dict]:
-        return self.fetch_all("SELECT * FROM services WHERE is_active = 1 ORDER BY id")
+        # در اینجا لیست خدمات دقیقاً به ترتیبی که در پنل چیده شده‌اند برمی‌گردد
+        return self.fetch_all("SELECT * FROM services WHERE is_active = 1 ORDER BY order_index ASC, id ASC")
 
     def create_slot(self, service_id: int, appointment_date: str, start_time: str, gender: str, capacity: int, end_time: Optional[str] = None) -> int:
         existing = self.get_slot(service_id=service_id, appointment_date=appointment_date, start_time=start_time, gender=gender)
@@ -113,7 +113,7 @@ class Repository:
             """SELECT s.*, sv.name AS service_name, 
                (SELECT COUNT(*) FROM appointments a WHERE a.service_id = s.service_id AND a.appointment_date = s.appointment_date AND a.start_time = s.start_time AND a.status = 'scheduled' AND (s.gender = 'all' OR a.gender = s.gender)) AS booked_count 
                FROM appointment_slots s INNER JOIN services sv ON sv.id = s.service_id 
-               WHERE s.service_id = ? AND s.appointment_date = ? AND s.gender = ? ORDER BY s.start_time""",
+               WHERE s.service_id = ? AND s.appointment_date = ? AND (s.gender = ? OR s.gender = 'all') ORDER BY s.start_time""",
             (service_id, appointment_date, gender)
         )
 
